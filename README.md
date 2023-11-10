@@ -1,3 +1,5 @@
+JourFixe: Wednesdays 16:30
+
 https://docs.google.com/document/d/1zVBMZkTgTrpkhmvkE6OEsBQA1EU4biEbBs33ubvpATY/edit
 
 # RIAI 2023 Course Project
