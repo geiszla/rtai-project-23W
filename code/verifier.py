@@ -3,6 +3,7 @@ import torch
 
 from networks import get_network
 from utils.loading import parse_spec
+from box import certify_sample
 
 DEVICE = "cpu"
 
@@ -10,7 +11,7 @@ DEVICE = "cpu"
 def analyze(
     net: torch.nn.Module, inputs: torch.Tensor, eps: float, true_label: int
 ) -> bool:
-    return 0
+    return certify_sample(net, inputs, true_label, eps)
 
 
 def main():
@@ -46,6 +47,7 @@ def main():
     # print(args.spec)
 
     net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
+    # print(net)
 
     image = image.to(DEVICE)
     out = net(image.unsqueeze(0))
