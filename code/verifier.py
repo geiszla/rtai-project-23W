@@ -1,17 +1,48 @@
 import argparse
 import torch
+import torch.nn as nn
+
 
 from networks import get_network
 from utils.loading import parse_spec
-from box import certify_sample
+# from box import certify_sample, AbstractBox
+from deeppoly import DeepPolyLinear, DeepPolyFlatten, DeepPolyShape, DeepPolyReLu
 
 DEVICE = "cpu"
+
+
+# def analyze(
+#     net: torch.nn.Module, inputs: torch.Tensor, eps: float, true_label: int
+# ) -> bool:
+#     return certify_sample(net, inputs, true_label, eps)
+
 
 
 def analyze(
     net: torch.nn.Module, inputs: torch.Tensor, eps: float, true_label: int
 ) -> bool:
-    return certify_sample(net, inputs, true_label, eps)
+
+    layers = []
+
+    for layer in net:
+        if isinstance(layer, nn.Flatten):
+            poly_layer = DeepPolyFlatten()
+        elif isinstance(layer, nn.Linear):
+            poly_layer = DeepPolyLinear(layer)
+        # elif isinstance(layer, nn.ReLU):
+        #   poly_layer = DeepPolyReLu(layer)
+        else:
+            raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
+        layers.append(poly_layer)
+
+    polynet = nn.Sequential(*layers)
+    x = DeepPolyShape(inputs, eps)
+
+    x = polynet(x)
+
+    return x.check_postcondition(true_label)
+
+    
 
 
 def main():
@@ -47,7 +78,7 @@ def main():
     # print(args.spec)
 
     net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
-    # print(net)
+    print(net)
 
     image = image.to(DEVICE)
     out = net(image.unsqueeze(0))
