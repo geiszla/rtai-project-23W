@@ -4,16 +4,86 @@ from abc import ABC, abstractmethod
 
 class DeepPolyBase(nn.Module):
     
-    def __init__(self, ub, lb):
+    def __init__(self, upper_bound, lower_bound):
         super(DeepPolyBase, self).__init__()
-        assert ub.shape == lb.shape
-        assert (lb > ub).sum() == 0
-        self.upper_bound = ub
-        self.lower_bound = lb
+        assert upper_bound.shape == lower_bound.shape
+        assert (lower_bound > upper_bound).sum() == 0
+        self.upper_bound = upper_bound
+        self.lower_bound = lower_bound
 
     @abstractmethod
     def forward(self, x):
         return x
+    
+class DeepPolyLinear(nn.Module):
+
+    def __init__(self, fc):
+        super(DeepPolyLinear, self).__init__()
+        self.weight = fc.weight
+        self.bias = fc.bias
+
+    def forward(self, x):
+        assert x.lower_bound.shape == x.upper_bound.shape
+        assert len(x.lower_bound.shape) == 2
+        assert x.lower_bound.shape[0] == 1 and x.lower_bound.shape[1] == self.weight.shape[1]
+
+        lb = x.lower_bound.repeat(self.weight.shape[0], 1)
+        ub = x.upper_bound.repeat(self.weight.shape[0], 1)
+        assert lb.shape == ub.shape == self.weight.shape
+
+        # When computing the new lower/upper bounds, we need to take into account the sign of the
+        # weight. Effectively, the expression that we want to overapproximate is:
+        # x_1 * w_1 + x_2 * w_2 + ... + x_d * w_d,
+        # where each x_i is overapproximated/abstracted by the box [lb_i, ub_i], i.e.
+        # the concrete value of the neuron x_i can be any number from the interval [lb_i, ub_i].
+        mul_lb = torch.where(self.weight > 0, lb, ub)
+        mul_ub = torch.where(self.weight > 0, ub, lb)
+
+        lb = (mul_lb * self.weight).sum(dim=1)
+        ub = (mul_ub * self.weight).sum(dim=1)
+        assert lb.shape == ub.shape == self.bias.shape
+
+        if self.bias is not None:
+            lb += self.bias
+            ub += self.bias
+
+        x.lower_bound = lb.unsqueeze(0)
+        x.upper_bound = ub.unsqueeze(0)
+
+        return x
+    
+class DeepPolyFlatten(nn.Module):
+
+    def __init__(self):
+        super(DeepPolyFlatten, self).__init__()
+
+    def forward(self, x):
+        flatten = nn.Flatten()
+        lb = flatten(x.lower_bound)
+        ub = flatten(x.upper_bound)
+        x.lower_bound = lb
+        x.upper_bound = ub
+        return x
+    
+class DeepPolyShape(DeepPolyBase):
+    def __init__(self, input, eps):
+        upper_bound = input + eps
+        upper_bound.clamp_(min=0, max=1)
+        lower_bound = input - eps
+        lower_bound.clamp_(min=0, max=1)
+
+        super(DeepPolyShape, self).__init__(upper_bound, lower_bound)
+
+    def check_postcondition(self, y) -> bool:
+        upper_bound = self.upper_bound.squeeze()
+        lower_bound = self.lower_bound.squeeze()
+        mask = torch.ones_like(upper_bound, dtype=torch.bool)
+        mask[y] = False
+        max_value = torch.max(torch.masked_select(upper_bound, mask))
+        return max_value < lower_bound[y]
+
+    def forward(self, x):
+        pass
         
 class DeepPolyConvolution(DeepPolyBase):
     def __init__(self, ub, lb):
@@ -109,3 +179,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

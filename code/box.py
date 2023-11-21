@@ -19,17 +19,6 @@ class AbstractBox:
 
         return AbstractBox(lb, ub)
 
-    def propagate_normalize(self, normalize: Normalize) -> 'AbstractBox':
-        # Follows from the rules in the lecture.
-        lb = normalize(self.lb)
-        ub = normalize(self.ub)
-        return AbstractBox(lb, ub)
-
-    def propagate_view(self, view: View) -> 'AbstractBox':
-        lb = view(self.lb)
-        ub = view(self.ub)
-        return AbstractBox(lb, ub)
-
     def propagate_flatten(self, flatten: nn.Flatten) -> 'AbstractBox':
         lb = flatten(self.lb)
         ub = flatten(self.ub)
@@ -83,11 +72,7 @@ class AbstractBox:
 def certify_sample(model, x, y, eps) -> bool:
     box = AbstractBox.construct_initial_box(x, eps)
     for layer in model:
-        if isinstance(layer, Normalize):
-            box = box.propagate_normalize(layer)
-        elif isinstance(layer, View):
-            box = box.propagate_view(layer)
-        elif isinstance(layer, nn.Flatten):
+        if isinstance(layer, nn.Flatten):
             box = box.propagate_flatten(layer)
         elif isinstance(layer, nn.Linear):
             box = box.propagate_linear(layer)
