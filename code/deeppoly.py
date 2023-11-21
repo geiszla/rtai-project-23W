@@ -1,9 +1,11 @@
+from abc import abstractmethod
+
+import numpy
 import torch
 from torch import nn
-from abc import ABC, abstractmethod
+
 
 class DeepPolyBase(nn.Module):
-    
     def __init__(self, upper_bound, lower_bound):
         super(DeepPolyBase, self).__init__()
         assert upper_bound.shape == lower_bound.shape
@@ -14,9 +16,9 @@ class DeepPolyBase(nn.Module):
     @abstractmethod
     def forward(self, x):
         return x
-    
-class DeepPolyLinear(nn.Module):
 
+
+class DeepPolyLinear(nn.Module):
     def __init__(self, fc):
         super(DeepPolyLinear, self).__init__()
         self.weight = fc.weight
@@ -25,7 +27,10 @@ class DeepPolyLinear(nn.Module):
     def forward(self, x):
         assert x.lower_bound.shape == x.upper_bound.shape
         assert len(x.lower_bound.shape) == 2
-        assert x.lower_bound.shape[0] == 1 and x.lower_bound.shape[1] == self.weight.shape[1]
+        assert (
+            x.lower_bound.shape[0] == 1
+            and x.lower_bound.shape[1] == self.weight.shape[1]
+        )
 
         lb = x.lower_bound.repeat(self.weight.shape[0], 1)
         ub = x.upper_bound.repeat(self.weight.shape[0], 1)
@@ -51,9 +56,9 @@ class DeepPolyLinear(nn.Module):
         x.upper_bound = ub.unsqueeze(0)
 
         return x
-    
-class DeepPolyFlatten(nn.Module):
 
+
+class DeepPolyFlatten(nn.Module):
     def __init__(self):
         super(DeepPolyFlatten, self).__init__()
 
@@ -64,7 +69,8 @@ class DeepPolyFlatten(nn.Module):
         x.lower_bound = lb
         x.upper_bound = ub
         return x
-    
+
+
 class DeepPolyShape(DeepPolyBase):
     def __init__(self, input, eps):
         upper_bound = input + eps
@@ -84,20 +90,25 @@ class DeepPolyShape(DeepPolyBase):
 
     def forward(self, x):
         pass
-        
+
+
 class DeepPolyConvolution(DeepPolyBase):
     def __init__(self, ub, lb):
-        super(DeepPolyConvolution, self).__init__()
-    
+        super().__init__(ub, lb)
+
     def forward(self, x):
-        pass
+        self.network()
+
 
 class DeepPolyReLu(DeepPolyBase):
-
     def __init__(self, ub, lb):
         super(DeepPolyReLu, self).__init__(ub, lb)
-        self.upper_bound_slope = torch.full_like(self.upper_bound, float('nan'), dtype=torch.float32)
-        self.lower_bound_slope = torch.full_like(self.upper_bound, float('nan'), dtype=torch.float32)
+        self.upper_bound_slope = torch.full_like(
+            self.upper_bound, float("nan"), dtype=torch.float32
+        )
+        self.lower_bound_slope = torch.full_like(
+            self.upper_bound, float("nan"), dtype=torch.float32
+        )
 
     def forward(self, x):
         # Compute DeepPoly slopes
@@ -107,7 +118,7 @@ class DeepPolyReLu(DeepPolyBase):
 
     def update_upper_and_lower_bound_(self):
         # After computing the slopes we
-        # update box bounds 
+        # update box bounds
         self.upper_bound[self.upper_bound < 0] = 0
         self.lower_bound[self.lower_bound < 0] = 0
 
@@ -115,14 +126,16 @@ class DeepPolyReLu(DeepPolyBase):
         # Computes upper and lower bound slopes
         self.upper_bound_slope = self.compute_upper_bound_slope(ub, lb)
         self.lower_bound_slope = self.compute_lower_bound_slopes(ub, lb)
-        
+
     def compute_upper_bound_slope(self, ub, lb):
         # Compute upper slope for all crossing ReLus
         # All other slopes stay nan
-        ub_slopes = torch.full_like(ub, float('nan'), dtype=torch.float32)
+        ub_slopes = torch.full_like(ub, float("nan"), dtype=torch.float32)
 
         # Division by zero is not possible due to crossing constraint: ub != lb
-        ub_slopes[self.crossing_relu_mask()] = ub[self.crossing_relu_mask()] / (ub[self.crossing_relu_mask()] - lb[self.crossing_relu_mask()])
+        ub_slopes[self.crossing_relu_mask()] = ub[self.crossing_relu_mask()] / (
+            ub[self.crossing_relu_mask()] - lb[self.crossing_relu_mask()]
+        )
 
         # Check if slopes valid
         assert ub_slopes.shape == ub.shape
@@ -130,13 +143,17 @@ class DeepPolyReLu(DeepPolyBase):
         assert torch.isnan(ub_slopes).sum() == self.crossing_relu_mask().sum()
 
         return ub_slopes
-    
+
     def compute_lower_bound_slopes(self, ub, lb):
         # Compute lower slope for all crossing ReLus based on two DeepPoly variants
         # All other slopes stay nan
-        lb_slopes = torch.full_like(lb, float('nan'), dtype=torch.float32)
+        lb_slopes = torch.full_like(lb, float("nan"), dtype=torch.float32)
 
-        assert self.deep_poly_variant_1_mask().sum() + self.deep_poly_variant_2_mask().sum() == self.crossing_relu_mask().sum()
+        assert (
+            self.deep_poly_variant_1_mask().sum()
+            + self.deep_poly_variant_2_mask().sum()
+            == self.crossing_relu_mask().sum()
+        )
 
         # Compute slope
         lb_slopes[self.deep_poly_variant_1_mask()] = 0
@@ -148,25 +165,26 @@ class DeepPolyReLu(DeepPolyBase):
         assert torch.isnan(lb_slopes).sum() == self.crossing_relu_mask().sum()
 
         return lb_slopes
-    
+
     def positive_relu_mask(self):
         return (self.upper_bound >= 0) & (self.lower_bound >= 0)
-    
+
     def negative_relu_mask(self):
-        return (self.upper_bound <= 0)
-    
+        return self.upper_bound <= 0
+
     def crossing_relu_mask(self):
         return (self.upper_bound > 0) & (self.lower_bound < 0)
-    
+
     def deep_poly_variant_1_mask(self):
         return self.crossing_relu_mask() & (self.upper_bound <= abs(self.lower_bound))
-    
+
     def deep_poly_variant_2_mask(self):
         return self.crossing_relu_mask() & (self.upper_bound > abs(self.lower_bound))
-    
+
+
 def main():
-    ub = torch.tensor([[-1,1], [2,3], [2,1]])
-    lb = torch.tensor([[-3,-1], [1,-1], [1,-1]])
+    ub = torch.tensor([[-1, 1], [2, 3], [2, 1]])
+    lb = torch.tensor([[-3, -1], [1, -1], [1, -1]])
     reluLayer = DeepPolyReLu(ub, lb)
     print("Upper bound", reluLayer.upper_bound)
     print("Lower bound", reluLayer.lower_bound)
@@ -177,7 +195,6 @@ def main():
     print("Updated upper bound", reluLayer.upper_bound)
     print("Updated lower bound", reluLayer.lower_bound)
 
+
 if __name__ == "__main__":
     main()
-
-
