@@ -2,6 +2,7 @@ from abc import abstractmethod
 
 import numpy
 import torch
+from toeplitz import get_toeplitz_convolution
 from torch import nn
 
 
@@ -92,9 +93,20 @@ class DeepPolyShape(DeepPolyBase):
         pass
 
 
-class DeepPolyConvolution(DeepPolyBase):
-    def __init__(self, ub, lb):
-        super().__init__(ub, lb)
+class DeepPolyConvolution(nn.Module):
+    def __init__(self, layer, input_shape):
+        self.weights = get_toeplitz_convolution(
+            layer.weight.data,
+            (layer.in_channels, input_shape[-2], input_shape[-1]),
+            stride=layer.stride[0],
+            padding=layer.padding[0],
+        ).T
+
+        self.bias = torch.repeat_interleave(
+            layer.bias.data, self.output_shape[-1] * self.output_shape[-2]
+        )
+
+        super().__init__()
 
     def forward(self, x):
         self.network()
