@@ -49,12 +49,23 @@ class DeepPolyBase(nn.Module):
         self.lower_bound = lb.unsqueeze(0)
         self.upper_bound = ub.unsqueeze(0)
 
+    @abstractmethod
+    def box_from_constraints(self, constraints):
+        # Given the constraints of this layer
+        # compute the box of this layer
+        return
+
+    @abstractmethod
+    def backsubstitution(self, constraints):
+        # Given the constraints from the previous layers
+        # compute the constraints of this layer
+        return
 
     @abstractmethod
     def forward(self, upper_bound, lower_bound):
         # Pushing the previous box through this layer
         # Obtain the new box
-        return
+        return 
     
 class DeepPolyLinear(DeepPolyBase):
     def __init__(self, fc):
@@ -62,29 +73,105 @@ class DeepPolyLinear(DeepPolyBase):
         self.weight = fc.weight
         self.bias = fc.bias
 
-    def forward(self, prev_ub, prev_lb):
+    def backsubstitution(self, constraints = None):
+        """
+        Given the constraints from the previous layers
+        compute the constraints of this layer.
+        """
+        if constraints is None:
+            return Constraints(self.weight.T, self.weight.T, self.bias, self.bias)
+        
+        assert isinstance(constraints, Constraints)
+
+        # Split the weight matrix into positive and negative weights
+        pos_weight, neg_weight = self.pos_neg_split(self.weight.T)
+
+        # Compute the new constraints
+        new_upper_constraints = constraints.upper_constraints @ pos_weight + constraints.lower_constraints @ neg_weight
+        new_lower_constraints = constraints.upper_constraints @ neg_weight + constraints.lower_constraints @ pos_weight 
+
+        # Compute the new bias
+        # Split the weight matrix into positive and negative weights
+        pos_weight, neg_weight = self.pos_neg_split(self.weight)
+        upper_bias = pos_weight @ constraints.upper_bias + neg_weight @ constraints.lower_bias
+        lower_bias = pos_weight @ constraints.lower_bias + neg_weight @ constraints.upper_bias
+
+        # Update the constraints
+        updated_constraints = Constraints(
+            new_upper_constraints, new_lower_constraints, upper_bias, lower_bias
+        )
+
+        return updated_constraints
+
+    def pos_neg_split(self, matrix):
+        # Split the weight matrix into positive and negative weights
+        pos_weight = torch.where(matrix > 0, matrix, 0)
+        neg_weight = torch.where(matrix < 0, matrix, 0)
+        return pos_weight, neg_weight
+
+
+    def swap(self, upper_matrix, lower_matrix):
+        # Swap the upper and lower bound if the weight is negative
+        upper_matrix = torch.where(self.weight > 0, upper_matrix, lower_matrix)
+        lower_matrix = torch.where(self.weight > 0, lower_matrix, upper_matrix)
+        return upper_matrix, lower_matrix
+
+    def box_from_constraints(self, prev_ub, prev_lb, constraints):
+        """
+        Given the constraints of this layer
+        compute the box of this layer.
+        """
+        if constraints is None:
+            return self.compute_new_box(prev_ub, prev_lb)
+
+        assert isinstance(constraints, Constraints)
+
+        pos_uc, neg_uc = self.pos_neg_split(constraints.upper_constraints.T)
+        pos_lc, neg_lc = self.pos_neg_split(constraints.lower_constraints.T)
+
+        # Compute the new upper and lower bound
+        new_upper_bound = pos_uc @ prev_ub + neg_uc @ prev_lb + constraints.upper_bias.unsqueeze(0).T
+        new_lower_bound = pos_lc @ prev_lb + neg_lc @ prev_ub + constraints.lower_bias.unsqueeze(0).T
+
+        # print shapes
+        # print("prev_ub", prev_ub.shape)
+        # print("pos_uc", pos_uc.shape)
+        # print("constraints.upper_bias", constraints.upper_bias.shape)
+        # print("new_upper_bound", new_upper_bound.shape)
+
+        # Update the box
+        self.upper_bound = new_upper_bound#.unsqueeze(0)
+        self.lower_bound = new_lower_bound#.unsqueeze(0)
+
+
+    def forward(self, inputs):
         """
         Pushing the previous box through this layer.
         Calling backsubstitution to compute additional constraints.
         """
-        assert prev_lb == prev_ub
-        assert len(prev_lb) == 2
-        assert (
-            prev_lb.shape[0] == 1
-            and prev_lb.shape[1] == self.weight.shape[1]
-        )
-        self.compute_new_box(prev_ub, prev_lb)
+        orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+        # print("linear layer")
+        constraints = self.backsubstitution(constraints)
+        self.box_from_constraints(orig_ub, orig_lb, constraints)
+
+        return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
 
 class DeepPolyFlatten(DeepPolyBase):
     def __init__(self):
         super(DeepPolyFlatten, self).__init__()
 
-    def forward(self, prev_lb, prev_ub):
+    def forward(self, inputs):
+        """
+        Pushing the previous box through this layer.
+        """
+        orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+        # print("flatten layer")
         flatten = nn.Flatten()
-        lb = flatten(prev_lb)
-        ub = flatten(prev_ub)
+        lb = flatten(prev_lb).T
+        ub = flatten(prev_ub).T
         self.lower_bound = lb
         self.upper_bound = ub
+        return self.upper_bound, self.lower_bound, self.upper_bound, self.lower_bound, constraints
 
 class DeepPolyShape(DeepPolyBase):
     def __init__(self, input, eps):

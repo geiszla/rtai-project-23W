@@ -16,7 +16,11 @@ DEVICE = "cpu"
 # ) -> bool:
 #     return certify_sample(net, inputs, true_label, eps)
 
-
+def check_postcondition(upper_bound, lower_bound, true_label):
+        mask = torch.ones_like(upper_bound, dtype=torch.bool)
+        mask[true_label] = False
+        max_value = torch.max(torch.masked_select(upper_bound, mask))
+        return max_value < lower_bound[true_label]
 
 def analyze(
     net: torch.nn.Module, inputs: torch.Tensor, eps: float, true_label: int
@@ -36,11 +40,16 @@ def analyze(
         layers.append(poly_layer)
 
     polynet = nn.Sequential(*layers)
-    x = DeepPolyShape(inputs, eps)
 
-    x = polynet(x)
+    upper_bound = inputs + eps
+    upper_bound.clamp_(min=0, max=1)
+    lower_bound = inputs - eps
+    lower_bound.clamp_(min=0, max=1)
 
-    return x.check_postcondition(true_label)
+    #upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, None))
+    _orig_ub, _orig_lb, upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, upper_bound, lower_bound, None))
+
+    return check_postcondition(upper_bound, lower_bound, true_label)
 
     
 
@@ -78,7 +87,9 @@ def main():
     # print(args.spec)
 
     net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
-    print(net)
+    # print(net)
+    print(args.net)
+    print(args.spec)
 
     image = image.to(DEVICE)
     out = net(image.unsqueeze(0))
