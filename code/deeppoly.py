@@ -83,11 +83,11 @@ class DeepPolyLinear(DeepPolyBase):
         
         assert isinstance(constraints, Constraints)
 
-        # Split the weight matrix into positive and negative weights
-        pos_weight, neg_weight = self.pos_neg_split(self.weight.T)
-
         # Compute the new constraints and bias
+        pos_weight, neg_weight = self.pos_neg_split(self.weight.T)
         new_upper_constraints, new_lower_constraints = self.compute_new_constraints(pos_weight, neg_weight, constraints)
+
+        pos_weight, neg_weight = self.pos_neg_split(self.weight)
         upper_bias, lower_bias = self.compute_new_bias(pos_weight, neg_weight, constraints)
 
         # Update the constraints
@@ -139,10 +139,6 @@ class DeepPolyLinear(DeepPolyBase):
         pos_lc, neg_lc = self.pos_neg_split(constraints.lower_constraints.T)
 
         # Compute the new upper and lower bound
-        # first print tensor types
-        print("prev_ub", prev_ub.dtype)
-        print("pos_uc", pos_uc.dtype)
-        print("constraints.upper_bias", constraints.upper_bias.dtype)
         new_upper_bound = pos_uc @ prev_ub + neg_uc @ prev_lb + constraints.upper_bias.unsqueeze(0).T
         new_lower_bound = pos_lc @ prev_lb + neg_lc @ prev_ub + constraints.lower_bias.unsqueeze(0).T
 
@@ -203,10 +199,19 @@ class DeepPolyConvolution(DeepPolyLinear):
             padding=self.layer.padding[0],
         )
 
-        output_shape = self.weight.shape # Is this correct?
+        output_shape = self.weight.shape[0] 
+        bias_shape = self.layer.bias.data.shape[0]
+        
+        assert output_shape % bias_shape == 0
+        repetition = output_shape // bias_shape
+
         self.bias = torch.repeat_interleave(
-            self.layer.bias.data, output_shape[-1] * output_shape[-2]
+            self.layer.bias.data, repetition
         )
+
+        print("bias", self.bias.shape)
+        print("weight", self.weight.shape)
+        print("self.layer.bias.data", self.layer.bias.data.shape)
 
         # in case this is the first layer we need to flatten and transpose the input
         flatten = nn.Flatten()
@@ -216,7 +221,7 @@ class DeepPolyConvolution(DeepPolyLinear):
             new_inputs = inputs
 
         # Use linear forward pass
-        super().forward((new_inputs))
+        return super().forward((new_inputs))
 
 class DeepPolyReLu(DeepPolyBase):
     def __init__(self, ub = None, lb = None):
@@ -238,7 +243,6 @@ class DeepPolyReLu(DeepPolyBase):
         self.lower_bound_slope = torch.full_like(
             self.upper_bound, float("nan"), dtype=torch.float32
         )
-
 
         # Compute DeepPoly slopes
         self.compute_relu_slopes(self.upper_bound, self.lower_bound)
