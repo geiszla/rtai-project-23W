@@ -1,6 +1,6 @@
 import numpy
 from scipy.linalg import toeplitz
-
+import torch
 
 def get_toeplitz_channel_convolution(kernel, input_size, stride=1, padding=1):
     """Compute the Toeplitz matrix for 2D convolution with with the given single-channel kernel
@@ -109,5 +109,7 @@ def get_toeplitz_convolution(kernel, input_size, stride=1, padding=1):
             ] = channel_toeplitz
 
     toeplitz_matrix.shape = (numpy.prod(output_size), numpy.prod(input_size))
+
+    toeplitz_matrix = torch.from_numpy(toeplitz_matrix).type(torch.float32)
 
     return toeplitz_matrix

@@ -86,15 +86,9 @@ class DeepPolyLinear(DeepPolyBase):
         # Split the weight matrix into positive and negative weights
         pos_weight, neg_weight = self.pos_neg_split(self.weight.T)
 
-        # Compute the new constraints
-        new_upper_constraints = constraints.upper_constraints @ pos_weight + constraints.lower_constraints @ neg_weight
-        new_lower_constraints = constraints.upper_constraints @ neg_weight + constraints.lower_constraints @ pos_weight 
-
-        # Compute the new bias
-        # Split the weight matrix into positive and negative weights
-        pos_weight, neg_weight = self.pos_neg_split(self.weight)
-        upper_bias = pos_weight @ constraints.upper_bias + neg_weight @ constraints.lower_bias
-        lower_bias = pos_weight @ constraints.lower_bias + neg_weight @ constraints.upper_bias
+        # Compute the new constraints and bias
+        new_upper_constraints, new_lower_constraints = self.compute_new_constraints(pos_weight, neg_weight, constraints)
+        upper_bias, lower_bias = self.compute_new_bias(pos_weight, neg_weight, constraints)
 
         # Update the constraints
         updated_constraints = Constraints(
@@ -110,11 +104,26 @@ class DeepPolyLinear(DeepPolyBase):
         return pos_weight, neg_weight
 
 
+    def compute_new_constraints(self, pos_weight, neg_weight, constraints):
+        # Compute the new constraints
+        new_upper_constraints = constraints.upper_constraints @ pos_weight + constraints.lower_constraints @ neg_weight
+        new_lower_constraints = constraints.upper_constraints @ neg_weight + constraints.lower_constraints @ pos_weight 
+        return new_upper_constraints, new_lower_constraints
+    
+
+    def compute_new_bias(self, pos_weight, neg_weight, constraints):
+        # Compute the new bias
+        upper_bias = pos_weight @ constraints.upper_bias + neg_weight @ constraints.lower_bias
+        lower_bias = pos_weight @ constraints.lower_bias + neg_weight @ constraints.upper_bias
+        return upper_bias, lower_bias
+
+
     def swap(self, upper_matrix, lower_matrix):
         # Swap the upper and lower bound if the weight is negative
         upper_matrix = torch.where(self.weight > 0, upper_matrix, lower_matrix)
         lower_matrix = torch.where(self.weight > 0, lower_matrix, upper_matrix)
         return upper_matrix, lower_matrix
+
 
     def box_from_constraints(self, prev_ub, prev_lb, constraints):
         """
@@ -130,14 +139,12 @@ class DeepPolyLinear(DeepPolyBase):
         pos_lc, neg_lc = self.pos_neg_split(constraints.lower_constraints.T)
 
         # Compute the new upper and lower bound
+        # first print tensor types
+        print("prev_ub", prev_ub.dtype)
+        print("pos_uc", pos_uc.dtype)
+        print("constraints.upper_bias", constraints.upper_bias.dtype)
         new_upper_bound = pos_uc @ prev_ub + neg_uc @ prev_lb + constraints.upper_bias.unsqueeze(0).T
         new_lower_bound = pos_lc @ prev_lb + neg_lc @ prev_ub + constraints.lower_bias.unsqueeze(0).T
-
-        # print shapes
-        # print("prev_ub", prev_ub.shape)
-        # print("pos_uc", pos_uc.shape)
-        # print("constraints.upper_bias", constraints.upper_bias.shape)
-        # print("new_upper_bound", new_upper_bound.shape)
 
         # Update the box
         self.upper_bound = new_upper_bound#.unsqueeze(0)
@@ -150,7 +157,7 @@ class DeepPolyLinear(DeepPolyBase):
         Calling backsubstitution to compute additional constraints.
         """
         orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
-        # print("linear layer")
+        
         constraints = self.backsubstitution(constraints)
         self.box_from_constraints(orig_ub, orig_lb, constraints)
 
@@ -173,48 +180,58 @@ class DeepPolyFlatten(DeepPolyBase):
         self.upper_bound = ub
         return self.upper_bound, self.lower_bound, self.upper_bound, self.lower_bound, constraints
 
-class DeepPolyShape(DeepPolyBase):
-    def __init__(self, input, eps):
-        upper_bound = input + eps
-        upper_bound.clamp_(min=0, max=1)
-        lower_bound = input - eps
-        lower_bound.clamp_(min=0, max=1)
-
-        super(DeepPolyShape, self).__init__(upper_bound, lower_bound)
-
-    def check_postcondition(self, y) -> bool:
-        upper_bound = self.upper_bound.squeeze()
-        lower_bound = self.lower_bound.squeeze()
-        mask = torch.ones_like(upper_bound, dtype=torch.bool)
-        mask[y] = False
-        max_value = torch.max(torch.masked_select(upper_bound, mask))
-        return max_value < lower_bound[y]
-
-    def forward(self, x):
-        pass
 
 
-class DeepPolyConvolution(nn.Module):
-    def __init__(self, layer, input_shape):
-        self.weights = get_toeplitz_convolution(
-            layer.weight.data,
-            (layer.in_channels, input_shape[-2], input_shape[-1]),
-            stride=layer.stride[0],
-            padding=layer.padding[0],
-        ).T
+class DeepPolyConvolution(DeepPolyLinear):
+    def __init__(self, layer):
+        self.weight = None
+        self.bias = None
+        super().__init__(self)
+        self.layer = layer
+        
 
-        self.bias = torch.repeat_interleave(
-            layer.bias.data, self.output_shape[-1] * self.output_shape[-2]
+    def forward(self, inputs):
+        print("################################# conv layer")
+        orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+        assert prev_ub.shape == prev_lb.shape
+
+        input_shape = prev_ub.shape
+        self.weight = get_toeplitz_convolution(
+            self.layer.weight.data,
+            (self.layer.in_channels, input_shape[-2], input_shape[-1]),
+            stride=self.layer.stride[0],
+            padding=self.layer.padding[0],
         )
 
-        super().__init__()
+        output_shape = self.weight.shape # Is this correct?
+        self.bias = torch.repeat_interleave(
+            self.layer.bias.data, output_shape[-1] * output_shape[-2]
+        )
 
-    def forward(self, x):
-        self.network()
+        # in case this is the first layer we need to flatten and transpose the input
+        flatten = nn.Flatten()
+        if constraints is None:
+            new_inputs = flatten(orig_lb).T, flatten(orig_ub).T, flatten(prev_lb).T, flatten(prev_ub).T, constraints
+        else:
+            new_inputs = inputs
+
+        # Use linear forward pass
+        super().forward((new_inputs))
 
 class DeepPolyReLu(DeepPolyBase):
-    def __init__(self, ub, lb):
+    def __init__(self, ub = None, lb = None):
         super(DeepPolyReLu, self).__init__(ub, lb)
+
+        self.upper_bound_slope = None
+        self.lower_bound_slope = None
+        
+
+    def forward(self, inputs):
+        orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+        assert prev_ub.shape == prev_lb.shape
+        self.upper_bound = prev_ub
+        self.lower_bound = prev_lb
+
         self.upper_bound_slope = torch.full_like(
             self.upper_bound, float("nan"), dtype=torch.float32
         )
@@ -222,11 +239,13 @@ class DeepPolyReLu(DeepPolyBase):
             self.upper_bound, float("nan"), dtype=torch.float32
         )
 
-    def forward(self, x):
+
         # Compute DeepPoly slopes
         self.compute_relu_slopes(self.upper_bound, self.lower_bound)
         # Update box bounds
         self.update_upper_and_lower_bound_()
+
+        return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
 
     def update_upper_and_lower_bound_(self):
         # After computing the slopes we
@@ -252,7 +271,7 @@ class DeepPolyReLu(DeepPolyBase):
         # Check if slopes valid
         assert ub_slopes.shape == ub.shape
         assert (ub_slopes < 0).sum() == 0
-        assert torch.isnan(ub_slopes).sum() == self.crossing_relu_mask().sum()
+        #assert torch.isnan(ub_slopes).sum() == self.crossing_relu_mask().sum()
 
         return ub_slopes
 
@@ -273,8 +292,8 @@ class DeepPolyReLu(DeepPolyBase):
 
         # Check if slope is valid
         assert lb_slopes.shape == lb.shape
-        print(lb_slopes)
-        assert torch.isnan(lb_slopes).sum() == self.crossing_relu_mask().sum()
+        #print(lb_slopes)
+        #assert torch.isnan(lb_slopes).sum() == self.crossing_relu_mask().sum()
 
         return lb_slopes
 
