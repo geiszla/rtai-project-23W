@@ -12,6 +12,16 @@
       "console": "integratedTerminal",
       "justMyCode": true,
       "cwd": "${fileDirname}",
+    },
+    {
+      "name": "Python: DeepPoly Verifier",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/code/verifier.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "cwd": "${workspaceFolder}",
+      "args": ["--net", "conv_1", "--spec", "test_cases/conv_1/img0_mnist_0.2302.txt"]
     }
   ]
 }

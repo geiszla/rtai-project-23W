@@ -6,7 +6,7 @@ import torch.nn as nn
 from networks import get_network
 from utils.loading import parse_spec
 # from box import certify_sample, AbstractBox
-from deeppoly import DeepPolyLinear, DeepPolyFlatten, DeepPolyShape, DeepPolyReLu
+from deeppoly import DeepPolyLinear, DeepPolyFlatten, DeepPolyReLu, DeepPolyConvolution
 
 DEVICE = "cpu"
 
@@ -16,7 +16,11 @@ DEVICE = "cpu"
 # ) -> bool:
 #     return certify_sample(net, inputs, true_label, eps)
 
-
+def check_postcondition(upper_bound, lower_bound, true_label):
+        mask = torch.ones_like(upper_bound, dtype=torch.bool)
+        mask[true_label] = False
+        max_value = torch.max(torch.masked_select(upper_bound, mask))
+        return max_value < lower_bound[true_label]
 
 def analyze(
     net: torch.nn.Module, inputs: torch.Tensor, eps: float, true_label: int
@@ -24,23 +28,35 @@ def analyze(
 
     layers = []
 
+    prev_layer = None
+
     for layer in net:
         if isinstance(layer, nn.Flatten):
             poly_layer = DeepPolyFlatten()
         elif isinstance(layer, nn.Linear):
             poly_layer = DeepPolyLinear(layer)
-        # elif isinstance(layer, nn.ReLU):
-        #   poly_layer = DeepPolyReLu(layer)
+        elif isinstance(layer, nn.ReLU):
+            if prev_layer is None:
+                raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
+            poly_layer = DeepPolyReLu()
+        elif isinstance(layer, nn.Conv2d):
+            poly_layer = DeepPolyConvolution(layer)
         else:
             raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
         layers.append(poly_layer)
+        prev_layer = poly_layer
 
     polynet = nn.Sequential(*layers)
-    x = DeepPolyShape(inputs, eps)
 
-    x = polynet(x)
+    upper_bound = inputs + eps
+    upper_bound.clamp_(min=0, max=1)
+    lower_bound = inputs - eps
+    lower_bound.clamp_(min=0, max=1)
 
-    return x.check_postcondition(true_label)
+    #upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, None))
+    _orig_ub, _orig_lb, upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, upper_bound, lower_bound, None))
+
+    return check_postcondition(upper_bound, lower_bound, true_label)
 
     
 
@@ -79,6 +95,8 @@ def main():
 
     net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
     print(net)
+    print(args.net)
+    print(args.spec)
 
     image = image.to(DEVICE)
     out = net(image.unsqueeze(0))

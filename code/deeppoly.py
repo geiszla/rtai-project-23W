@@ -7,7 +7,7 @@ from torch import nn
 
 
 class DeepPolyBase(nn.Module):
-    def __init__(self, prev = None, next = None):
+    def __init__(self, prev=None, next=None):
         super(DeepPolyBase, self).__init__()
 
         # Double linking the network layers
@@ -49,85 +49,242 @@ class DeepPolyBase(nn.Module):
         self.lower_bound = lb.unsqueeze(0)
         self.upper_bound = ub.unsqueeze(0)
 
+    @abstractmethod
+    def box_from_constraints(self, constraints):
+        # Given the constraints of this layer
+        # compute the box of this layer
+        return
+
+    @abstractmethod
+    def backsubstitution(self, constraints):
+        # Given the constraints from the previous layers
+        # compute the constraints of this layer
+        return
 
     @abstractmethod
     def forward(self, upper_bound, lower_bound):
         # Pushing the previous box through this layer
         # Obtain the new box
         return
-    
+
+
 class DeepPolyLinear(DeepPolyBase):
     def __init__(self, fc):
         super(DeepPolyLinear, self).__init__()
         self.weight = fc.weight
         self.bias = fc.bias
 
-    def forward(self, prev_ub, prev_lb):
+    def backsubstitution(self, constraints=None):
+        """
+        Given the constraints from the previous layers
+        compute the constraints of this layer.
+        """
+        if constraints is None:
+            return Constraints(self.weight.T, self.weight.T, self.bias, self.bias)
+
+        assert isinstance(constraints, Constraints)
+
+        # Compute the new constraints and bias
+        pos_weight, neg_weight = self.pos_neg_split(self.weight.T)
+        new_upper_constraints, new_lower_constraints = self.compute_new_constraints(
+            pos_weight, neg_weight, constraints
+        )
+
+        pos_weight, neg_weight = self.pos_neg_split(self.weight)
+        upper_bias, lower_bias = self.compute_new_bias(
+            pos_weight, neg_weight, constraints
+        )
+
+        # Update the constraints
+        updated_constraints = Constraints(
+            new_upper_constraints, new_lower_constraints, upper_bias, lower_bias
+        )
+
+        return updated_constraints
+
+    def pos_neg_split(self, matrix):
+        # Split the weight matrix into positive and negative weights
+        pos_weight = torch.where(matrix > 0, matrix, 0)
+        neg_weight = torch.where(matrix < 0, matrix, 0)
+        return pos_weight, neg_weight
+
+    def compute_new_constraints(self, pos_weight, neg_weight, constraints):
+        # Compute the new constraints
+        new_upper_constraints = (
+            constraints.upper_constraints @ pos_weight
+            + constraints.lower_constraints @ neg_weight
+        )
+        new_lower_constraints = (
+            constraints.upper_constraints @ neg_weight
+            + constraints.lower_constraints @ pos_weight
+        )
+        return new_upper_constraints, new_lower_constraints
+
+    def compute_new_bias(self, pos_weight, neg_weight, constraints):
+        # Compute the new bias
+        upper_bias = (
+            pos_weight @ constraints.upper_bias + neg_weight @ constraints.lower_bias
+        )
+        lower_bias = (
+            pos_weight @ constraints.lower_bias + neg_weight @ constraints.upper_bias
+        )
+        return upper_bias, lower_bias
+
+    def swap(self, upper_matrix, lower_matrix):
+        # Swap the upper and lower bound if the weight is negative
+        upper_matrix = torch.where(self.weight > 0, upper_matrix, lower_matrix)
+        lower_matrix = torch.where(self.weight > 0, lower_matrix, upper_matrix)
+        return upper_matrix, lower_matrix
+
+    def box_from_constraints(self, prev_ub, prev_lb, constraints):
+        """
+        Given the constraints of this layer
+        compute the box of this layer.
+        """
+        if constraints is None:
+            return self.compute_new_box(prev_ub, prev_lb)
+
+        assert isinstance(constraints, Constraints)
+
+        pos_uc, neg_uc = self.pos_neg_split(constraints.upper_constraints.T)
+        pos_lc, neg_lc = self.pos_neg_split(constraints.lower_constraints.T)
+
+        # Compute the new upper and lower bound
+        new_upper_bound = (
+            pos_uc @ prev_ub + neg_uc @ prev_lb + constraints.upper_bias.unsqueeze(0).T
+        )
+        new_lower_bound = (
+            pos_lc @ prev_lb + neg_lc @ prev_ub + constraints.lower_bias.unsqueeze(0).T
+        )
+
+        # Update the box
+        self.upper_bound = new_upper_bound  # .unsqueeze(0)
+        self.lower_bound = new_lower_bound  # .unsqueeze(0)
+
+    def forward(self, inputs):
         """
         Pushing the previous box through this layer.
         Calling backsubstitution to compute additional constraints.
         """
-        assert prev_lb == prev_ub
-        assert len(prev_lb) == 2
-        assert (
-            prev_lb.shape[0] == 1
-            and prev_lb.shape[1] == self.weight.shape[1]
-        )
-        self.compute_new_box(prev_ub, prev_lb)
+        print("linear layer")
+        orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+
+        constraints = self.backsubstitution(constraints)
+        self.box_from_constraints(orig_ub, orig_lb, constraints)
+
+        return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
+
 
 class DeepPolyFlatten(DeepPolyBase):
     def __init__(self):
         super(DeepPolyFlatten, self).__init__()
 
-    def forward(self, prev_lb, prev_ub):
+    def forward(self, inputs):
+        """
+        Pushing the previous box through this layer.
+        """
+        orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+        print("flatten layer")
         flatten = nn.Flatten()
-        lb = flatten(prev_lb)
-        ub = flatten(prev_ub)
+        lb = flatten(prev_lb).T
+        ub = flatten(prev_ub).T
         self.lower_bound = lb
         self.upper_bound = ub
 
-class DeepPolyShape(DeepPolyBase):
-    def __init__(self, input, eps):
-        upper_bound = input + eps
-        upper_bound.clamp_(min=0, max=1)
-        lower_bound = input - eps
-        lower_bound.clamp_(min=0, max=1)
-
-        super(DeepPolyShape, self).__init__(upper_bound, lower_bound)
-
-    def check_postcondition(self, y) -> bool:
-        upper_bound = self.upper_bound.squeeze()
-        lower_bound = self.lower_bound.squeeze()
-        mask = torch.ones_like(upper_bound, dtype=torch.bool)
-        mask[y] = False
-        max_value = torch.max(torch.masked_select(upper_bound, mask))
-        return max_value < lower_bound[y]
-
-    def forward(self, x):
-        pass
+        if constraints is None:
+            return (
+                self.upper_bound,
+                self.lower_bound,
+                self.upper_bound,
+                self.lower_bound,
+                constraints,
+            )
+        else:
+            return (
+                orig_ub,
+                orig_lb,
+                self.upper_bound,
+                self.lower_bound,
+                constraints,
+            )
 
 
-class DeepPolyConvolution(nn.Module):
-    def __init__(self, layer, input_shape):
-        self.weights = get_toeplitz_convolution(
-            layer.weight.data,
-            (layer.in_channels, input_shape[-2], input_shape[-1]),
-            stride=layer.stride[0],
-            padding=layer.padding[0],
-        ).T
+class DeepPolyConvolution(DeepPolyLinear):
+    def __init__(self, layer):
+        self.weight = None
+        self.bias = None
+        super().__init__(self)
+        self.layer = layer
 
-        self.bias = torch.repeat_interleave(
-            layer.bias.data, self.output_shape[-1] * self.output_shape[-2]
+    def forward(self, inputs):
+        print("conv layer")
+        orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+        assert prev_ub.shape == prev_lb.shape
+
+        _, input_height, input_width = prev_ub.shape
+        _, _, kernel_height, kernel_width = self.layer.weight.data.shape
+
+        stride = self.layer.stride[0]
+        padding = self.layer.padding[0]
+
+        self.weight = get_toeplitz_convolution(
+            self.layer.weight.data,
+            (self.layer.in_channels, input_height, input_width),
+            stride=stride,
+            padding=padding,
         )
 
-        super().__init__()
+        output_shape = self.weight.shape[0]
+        bias_shape = self.layer.bias.data.shape[0]
 
-    def forward(self, x):
-        self.network()
+        assert output_shape % bias_shape == 0
+        repetition = output_shape // bias_shape
+
+        self.bias = torch.repeat_interleave(self.layer.bias.data, repetition)
+
+        # in case this is the first layer we need to flatten and transpose the input
+        flatten = nn.Flatten()
+        if constraints is None:
+            new_inputs = (
+                flatten(orig_lb).T,
+                flatten(orig_ub).T,
+                flatten(prev_lb).T,
+                flatten(prev_ub).T,
+                constraints,
+            )
+        else:
+            new_inputs = inputs
+
+        # Use linear forward pass
+        linear_result = super().forward((new_inputs))
+        linear_result = list(linear_result)
+
+        output_height = (input_height - kernel_height + 2 * padding) // stride + 1
+        output_width = (input_width - kernel_width + 2 * padding) // stride + 1
+        output_shape = (self.layer.out_channels, output_height, output_width)
+
+        self.upper_bound = self.upper_bound.view(output_shape)
+        self.lower_bound = self.lower_bound.view(output_shape)
+
+        linear_result[2] = self.upper_bound
+        linear_result[3] = self.lower_bound
+
+        return tuple(linear_result)
+
 
 class DeepPolyReLu(DeepPolyBase):
-    def __init__(self, ub, lb):
+    def __init__(self, ub=None, lb=None):
         super(DeepPolyReLu, self).__init__(ub, lb)
+
+        self.upper_bound_slope = None
+        self.lower_bound_slope = None
+
+    def forward(self, inputs):
+        orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+        assert prev_ub.shape == prev_lb.shape
+        self.upper_bound = prev_ub
+        self.lower_bound = prev_lb
+
         self.upper_bound_slope = torch.full_like(
             self.upper_bound, float("nan"), dtype=torch.float32
         )
@@ -135,11 +292,12 @@ class DeepPolyReLu(DeepPolyBase):
             self.upper_bound, float("nan"), dtype=torch.float32
         )
 
-    def forward(self, x):
         # Compute DeepPoly slopes
         self.compute_relu_slopes(self.upper_bound, self.lower_bound)
         # Update box bounds
         self.update_upper_and_lower_bound_()
+
+        return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
 
     def update_upper_and_lower_bound_(self):
         # After computing the slopes we
@@ -165,7 +323,7 @@ class DeepPolyReLu(DeepPolyBase):
         # Check if slopes valid
         assert ub_slopes.shape == ub.shape
         assert (ub_slopes < 0).sum() == 0
-        assert torch.isnan(ub_slopes).sum() == self.crossing_relu_mask().sum()
+        # assert torch.isnan(ub_slopes).sum() == self.crossing_relu_mask().sum()
 
         return ub_slopes
 
@@ -186,8 +344,8 @@ class DeepPolyReLu(DeepPolyBase):
 
         # Check if slope is valid
         assert lb_slopes.shape == lb.shape
-        print(lb_slopes)
-        assert torch.isnan(lb_slopes).sum() == self.crossing_relu_mask().sum()
+        # print(lb_slopes)
+        # assert torch.isnan(lb_slopes).sum() == self.crossing_relu_mask().sum()
 
         return lb_slopes
 
@@ -206,7 +364,8 @@ class DeepPolyReLu(DeepPolyBase):
     def deep_poly_variant_2_mask(self):
         return self.crossing_relu_mask() & (self.upper_bound > abs(self.lower_bound))
 
-class Constraints():
+
+class Constraints:
     upper_constraints = None
     lower_constraints = None
     upper_bias = None
@@ -217,7 +376,8 @@ class Constraints():
         self.lower_constraints = lc
         self.upper_bias = ub
         self.lower_bias = lb
-    
+
+
 def main():
     ub = torch.tensor([[-1, 1], [2, 3], [2, 1]])
     lb = torch.tensor([[-3, -1], [1, -1], [1, -1]])

@@ -270,5 +270,3 @@ def get_network(
     model.eval()
 
     return model
-
-print(get_network("fc_base"))
