@@ -166,6 +166,7 @@ class DeepPolyLinear(DeepPolyBase):
         Pushing the previous box through this layer.
         Calling backsubstitution to compute additional constraints.
         """
+        print("linear layer")
         orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
 
         constraints = self.backsubstitution(constraints)
@@ -183,19 +184,29 @@ class DeepPolyFlatten(DeepPolyBase):
         Pushing the previous box through this layer.
         """
         orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
-        # print("flatten layer")
+        print("flatten layer")
         flatten = nn.Flatten()
         lb = flatten(prev_lb).T
         ub = flatten(prev_ub).T
         self.lower_bound = lb
         self.upper_bound = ub
-        return (
-            self.upper_bound,
-            self.lower_bound,
-            self.upper_bound,
-            self.lower_bound,
-            constraints,
-        )
+
+        if constraints is None:
+            return (
+                self.upper_bound,
+                self.lower_bound,
+                self.upper_bound,
+                self.lower_bound,
+                constraints,
+            )
+        else:
+            return (
+                orig_ub,
+                orig_lb,
+                self.upper_bound,
+                self.lower_bound,
+                constraints,
+            )
 
 
 class DeepPolyConvolution(DeepPolyLinear):
@@ -206,7 +217,7 @@ class DeepPolyConvolution(DeepPolyLinear):
         self.layer = layer
 
     def forward(self, inputs):
-        print("################################# conv layer")
+        print("conv layer")
         orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
         assert prev_ub.shape == prev_lb.shape
 
@@ -231,10 +242,6 @@ class DeepPolyConvolution(DeepPolyLinear):
 
         self.bias = torch.repeat_interleave(self.layer.bias.data, repetition)
 
-        print("bias", self.bias.shape)
-        print("weight", self.weight.shape)
-        print("self.layer.bias.data", self.layer.bias.data.shape)
-
         # in case this is the first layer we need to flatten and transpose the input
         flatten = nn.Flatten()
         if constraints is None:
@@ -250,10 +257,11 @@ class DeepPolyConvolution(DeepPolyLinear):
 
         # Use linear forward pass
         linear_result = super().forward((new_inputs))
+        linear_result = list(linear_result)
 
         output_height = (input_height - kernel_height + 2 * padding) // stride + 1
         output_width = (input_width - kernel_width + 2 * padding) // stride + 1
-        output_shape = (1, self.layer.out_channels, output_height, output_width)
+        output_shape = (self.layer.out_channels, output_height, output_width)
 
         self.upper_bound = self.upper_bound.view(output_shape)
         self.lower_bound = self.lower_bound.view(output_shape)
@@ -261,7 +269,7 @@ class DeepPolyConvolution(DeepPolyLinear):
         linear_result[2] = self.upper_bound
         linear_result[3] = self.lower_bound
 
-        return linear_result
+        return tuple(linear_result)
 
 
 class DeepPolyReLu(DeepPolyBase):
