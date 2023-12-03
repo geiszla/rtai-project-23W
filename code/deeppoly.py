@@ -258,6 +258,9 @@ class DeepPolyConvolution(DeepPolyLinear):
         self.upper_bound = self.upper_bound.view(output_shape)
         self.lower_bound = self.lower_bound.view(output_shape)
 
+        linear_result[2] = self.upper_bound
+        linear_result[3] = self.lower_bound
+
         return linear_result
 
 
