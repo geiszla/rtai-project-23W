@@ -122,6 +122,8 @@ class DeepPolyLinear(DeepPolyBase):
 
     def compute_new_bias(self, pos_weight, neg_weight, constraints):
         # Compute the new bias
+        print("pos_weight linear ", pos_weight.shape)
+        print("constraints.upper_bias linear ", constraints.upper_bias.shape)
         upper_bias = (
             pos_weight @ constraints.upper_bias + neg_weight @ constraints.lower_bias + self.bias
         )
@@ -275,6 +277,7 @@ class DeepPolyReLu(DeepPolyBase):
         self.lower_bound_slope = None
 
     def forward(self, inputs):
+        print("relu layer")
         orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
         assert prev_ub.shape == prev_lb.shape
         self.upper_bound = prev_ub
@@ -289,11 +292,81 @@ class DeepPolyReLu(DeepPolyBase):
 
         # Compute DeepPoly slopes
         self.compute_relu_slopes(self.upper_bound, self.lower_bound)
+        # Compute constraints
+        new_upper_constraints, new_lower_constraints = self.updated_constraints(constraints)
+        # Compute bias
+        upper_bias, lower_bias = self.updated_bias(constraints, prev_lb)
         # Update box bounds
         self.update_upper_and_lower_bound_()
 
+        constraints = Constraints(
+            new_upper_constraints, new_lower_constraints, upper_bias, lower_bias
+        )
+
         return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
 
+    def updated_constraints(self, constraints):
+        """
+        Given the constraints from the previous layers,
+        compute the constraints of this layer.
+        """
+        assert isinstance(constraints, Constraints)
+
+        num_constraints = constraints.upper_constraints.shape[0]
+
+        # Compute the new constraints for crossing ReLUs
+        upper_bound_slope_repeat = self.upper_bound_slope.T.repeat(num_constraints, 1)
+        lower_bound_slope_repeat = self.lower_bound_slope.T.repeat(num_constraints, 1)
+
+        new_upper_constraints = constraints.upper_constraints * upper_bound_slope_repeat
+        new_lower_constraints = constraints.lower_constraints * lower_bound_slope_repeat
+
+        positive_relu_mask_repeat = self.positive_relu_mask().T.repeat(num_constraints, 1)
+        negative_relu_mask_repeat = self.negative_relu_mask().T.repeat(num_constraints, 1)
+
+        # Compute the new constraints for positive ReLUs
+        new_upper_constraints[positive_relu_mask_repeat] = constraints.upper_constraints[positive_relu_mask_repeat]
+        new_lower_constraints[positive_relu_mask_repeat] = constraints.lower_constraints[positive_relu_mask_repeat]
+
+        # Compute the new constraints for negative ReLUs
+        new_upper_constraints[negative_relu_mask_repeat] = 0
+        new_lower_constraints[negative_relu_mask_repeat] = 0
+
+        print("new_upper_constraints", new_upper_constraints)
+
+        return new_upper_constraints, new_lower_constraints
+
+    def updated_bias(self, constraints, prev_lb):
+        """
+        Given the constraints from the previous layers
+        compute the bias of this layer.
+        """
+        assert isinstance(constraints, Constraints)
+
+        # Compute the new bias for crossing ReLUs
+        upper_bound_slope = self.upper_bound_slope.view(-1)
+        lower_bound_slope = self.lower_bound_slope.view(-1)
+        positive_relu_mask = self.positive_relu_mask().view(-1)
+        negative_relu_mask = self.negative_relu_mask().view(-1)
+
+        upper_bias = torch.mul(constraints.upper_bias.view(-1), upper_bound_slope) + torch.mul(upper_bound_slope, prev_lb.view(-1))
+        lower_bias = torch.mul(constraints.lower_bias.view(-1), lower_bound_slope)
+
+        # Compute the new bias for positive ReLUs
+        upper_bias[positive_relu_mask] = constraints.upper_bias[positive_relu_mask]
+        lower_bias[positive_relu_mask] = constraints.lower_bias[positive_relu_mask]
+
+        # Compute the new bias for negative ReLUs
+        upper_bias[negative_relu_mask] = 0
+        lower_bias[negative_relu_mask] = 0
+
+        # Check if bias is valid
+        assert upper_bias.shape == lower_bias.shape
+        # check there are no nan values
+        assert upper_bias.isnan().sum() == 0
+
+        return upper_bias, lower_bias
+    
     def update_upper_and_lower_bound_(self):
         # After computing the slopes we
         # update box bounds
@@ -429,7 +502,7 @@ class DeepPolyLeakyReLu(DeepPolyBase):
         They can be used to tighten the box bounds during backsubstitution.
         """
         assert self.prev_ub.shape == self.prev_lb.shape
-        assert torch.all(self.prev_ub > self.prev_lb)
+        assert torch.all(self.prev_ub >= self.prev_lb)
 
         upper_slopes, lower_slopes = self.compute_slopes()
         upper_bias, lower_bias = self.compute_bias()
