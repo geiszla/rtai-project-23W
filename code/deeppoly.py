@@ -290,6 +290,13 @@ class DeepPolyReLu(DeepPolyBase):
             self.upper_bound, float("nan"), dtype=torch.float32
         )
 
+        constraints = self.backsubstitution(constraints, prev_lb)
+        # Update box bounds
+        self.update_upper_and_lower_bound_()
+
+        return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
+
+    def backsubstitution(self, constraints, prev_lb):
         # Compute DeepPoly slopes
         self.compute_relu_slopes(self.upper_bound, self.lower_bound)
         # Compute constraints
@@ -299,11 +306,12 @@ class DeepPolyReLu(DeepPolyBase):
         # Update box bounds
         self.update_upper_and_lower_bound_()
 
-        constraints = Constraints(
+        new_constraints = Constraints(
             new_upper_constraints, new_lower_constraints, upper_bias, lower_bias
         )
 
-        return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
+        return new_constraints
+
 
     def updated_constraints(self, constraints):
         """
