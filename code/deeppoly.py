@@ -123,18 +123,13 @@ class DeepPolyLinear(DeepPolyBase):
     def compute_new_bias(self, pos_weight, neg_weight, constraints):
         # Compute the new bias
         upper_bias = (
-            pos_weight @ constraints.upper_bias + neg_weight @ constraints.lower_bias
+            pos_weight @ constraints.upper_bias + neg_weight @ constraints.lower_bias + self.bias
         )
         lower_bias = (
-            pos_weight @ constraints.lower_bias + neg_weight @ constraints.upper_bias
+            pos_weight @ constraints.lower_bias + neg_weight @ constraints.upper_bias + self.bias
         )
         return upper_bias, lower_bias
 
-    def swap(self, upper_matrix, lower_matrix):
-        # Swap the upper and lower bound if the weight is negative
-        upper_matrix = torch.where(self.weight > 0, upper_matrix, lower_matrix)
-        lower_matrix = torch.where(self.weight > 0, lower_matrix, upper_matrix)
-        return upper_matrix, lower_matrix
 
     def box_from_constraints(self, prev_ub, prev_lb, constraints):
         """
@@ -246,10 +241,10 @@ class DeepPolyConvolution(DeepPolyLinear):
         flatten = nn.Flatten()
         if constraints is None:
             new_inputs = (
-                flatten(orig_lb).T,
                 flatten(orig_ub).T,
-                flatten(prev_lb).T,
+                flatten(orig_lb).T,
                 flatten(prev_ub).T,
+                flatten(prev_lb).T,
                 constraints,
             )
         else:

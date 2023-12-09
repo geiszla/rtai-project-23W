@@ -20,6 +20,8 @@ def check_postcondition(upper_bound, lower_bound, true_label):
         mask = torch.ones_like(upper_bound, dtype=torch.bool)
         mask[true_label] = False
         max_value = torch.max(torch.masked_select(upper_bound, mask))
+        # print("max_value", max_value)
+        # print("lower_bound", lower_bound[true_label])
         return max_value < lower_bound[true_label]
 
 def analyze(
@@ -55,6 +57,9 @@ def analyze(
 
     #upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, None))
     _orig_ub, _orig_lb, upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, upper_bound, lower_bound, None))
+    # print("upper_bound", upper_bound)
+    # print("lower_bound", lower_bound)
+    # print("true_label", true_label)
 
     return check_postcondition(upper_bound, lower_bound, true_label)
 
