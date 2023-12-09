@@ -268,8 +268,8 @@ class DeepPolyConvolution(DeepPolyLinear):
 
 
 class DeepPolyReLu(DeepPolyBase):
-    def __init__(self, ub=None, lb=None):
-        super(DeepPolyReLu, self).__init__(ub, lb)
+    def __init__(self, layer):
+        super(DeepPolyReLu, self).__init__()
 
         self.upper_bound_slope = None
         self.lower_bound_slope = None
@@ -359,6 +359,135 @@ class DeepPolyReLu(DeepPolyBase):
     def deep_poly_variant_2_mask(self):
         return self.crossing_relu_mask() & (self.upper_bound > abs(self.lower_bound))
 
+class DeepPolyLeakyReLu(DeepPolyBase):
+    def __init__(self, layer):
+        super(DeepPolyLeakyReLu, self).__init__()
+        self.leaky_relu_slope = layer.negative_slope
+
+    def forward(self, inputs):
+        orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+        self.prev_ub = prev_ub
+        self.prev_lb = prev_lb
+
+        # Compute simple box first
+        self.upper_bound, self.lower_bound = self.compute_new_box()
+
+        # Compute constraints constisting of upper and lower bound slopes and biases
+        self.constraints = self.compute_constraints()
+
+    def compute_new_box(self):
+        """
+        Compute a simple box from upper bound and lower bound of previous layer.
+        This box can be tighented later by using the constraints.
+        """
+        assert self.prev_ub.shape == self.prev_lb.shape
+        assert torch.all(self.prev_ub > self.prev_lb)
+
+        # Initialize with NaN
+        upper_bound = torch.full_like(self.prev_ub, float('nan'), dtype=torch.float32)
+        lower_bound = torch.full_like(self.prev_lb, float('nan'), dtype=torch.float32)
+
+        # Upper bound
+        upper_bound[self.prev_ub > 0] = self.prev_ub[self.prev_ub > 0]
+        upper_bound[self.prev_ub <= 0] = self.leaky_relu_slope * self.prev_ub[self.prev_ub <= 0]
+
+        # Lower bound
+        lower_bound[self.prev_lb > 0] = self.prev_lb[self.prev_lb > 0]
+        lower_bound[self.prev_lb <= 0] = self.leaky_relu_slope * self.prev_lb[self.prev_lb <= 0]
+
+        assert upper_bound.shape == lower_bound.shape == self.prev_ub.shape == self.prev_lb.shape
+        assert (upper_bound < lower_bound).sum() == 0
+        assert upper_bound.isnan().sum() == 0
+        assert lower_bound.isnan().sum() == 0
+
+        return upper_bound, lower_bound
+    
+    def compute_slopes(self):
+        """
+        Compute the slopes of the upper and lower bound for the constraints.
+        Use two different cases for leaky relu slope bigger or smaller than 1.
+        """
+        if self.leaky_relu_slope >= 1:
+            return self.compute_slope_bigger_one()
+        else:
+            return self.compute_slope_smaller_one()
+    
+    def compute_bias(self):
+        """
+        Compute the bias of the upper and lower bound for the constraints.
+        Use two different cases for leaky relu slope bigger or smaller than 1.
+        """
+        if self.leaky_relu_slope >= 1:
+            return self.compute_bias_bigger_one()
+        else:
+            return self.compute_bias_smaller_one()
+        
+    def compute_constraints(self):
+        """
+        Computes all constraints for the leaky relu layer.
+        The constraints consist of upper and lower bound slopes and biases.
+        They can be used to tighten the box bounds during backsubstitution.
+        """
+        assert self.prev_ub.shape == self.prev_lb.shape
+        assert torch.all(self.prev_ub > self.prev_lb)
+
+        upper_slopes, lower_slopes = self.compute_slopes()
+        upper_bias, lower_bias = self.compute_bias()
+
+        assert upper_slopes.shape == lower_slopes.shape == self.prev_ub.shape == self.prev_lb.shape
+        assert upper_bias.shape == lower_bias.shape == self.prev_ub.shape == self.prev_lb.shape
+
+
+        return Constraints(upper_slopes, lower_slopes, upper_bias, lower_bias)
+
+    def crossing_relu_mask(self):
+        return (self.prev_ub> 0) & (self.prev_lb < 0)
+    
+    def compute_slope_bigger_one(self):
+
+        # Initialize with NaN
+        upper_slopes = torch.full_like(self.prev_ub, float('nan'), dtype=torch.float32)
+        lower_slopes = torch.full_like(self.prev_lb, float('nan'), dtype=torch.float32)
+
+        # Upper slopes
+        upper_slopes[self.crossing_relu_mask()] = 1
+
+        # Lower slopes
+        # (ub - a*lb) / (ub - lb)
+        rise = self.prev_ub[self.crossing_relu_mask()] - (self.leaky_relu_slope * self.prev_lb[self.crossing_relu_mask()])
+        run = self.prev_ub[self.crossing_relu_mask()] - self.prev_lb[self.crossing_relu_mask()]
+        lower_slopes[self.crossing_relu_mask()] = rise / run
+
+        # Only crossing relus have slopes, else nan
+        return upper_slopes, lower_slopes
+    
+    def compute_slope_smaller_one(self):
+        # Andras implementation
+        raise NotImplementedError
+
+    def compute_bias_bigger_one(self):
+        # Initialize with NaN
+        upper_bias = torch.full_like(self.prev_ub, float('nan'), dtype=torch.float32)
+        lower_bias = torch.full_like(self.prev_lb, float('nan'), dtype=torch.float32)
+
+        # Get the indices of crossing relus
+        crossing_indices = self.crossing_relu_mask()
+
+        # Upper bias
+        upper_bias[crossing_indices] = 0
+
+        # Lower bias
+        numerator = torch.square(self.prev_ub[crossing_indices]) - self.prev_ub[crossing_indices] * self.prev_lb[crossing_indices]
+        denominator = (self.prev_ub[crossing_indices] - self.leaky_relu_slope * self.prev_lb[crossing_indices])
+        lower_bias[crossing_indices] = self.prev_ub[crossing_indices] - (numerator / denominator)
+
+        # Only crossing relus have biases, else nan
+        return upper_bias, lower_bias
+    
+    def compute_bias_smaller_one(self):
+        # Andras implementation
+        raise NotImplementedError
+
 
 class Constraints:
     upper_constraints = None
@@ -374,18 +503,24 @@ class Constraints:
 
 
 def main():
-    ub = torch.tensor([[-1, 1], [2, 3], [2, 1]])
-    lb = torch.tensor([[-3, -1], [1, -1], [1, -1]])
-    reluLayer = DeepPolyReLu(ub, lb)
-    print("Upper bound", reluLayer.upper_bound)
-    print("Lower bound", reluLayer.lower_bound)
-    print("Crossing ReLU mask", reluLayer.crossing_relu_mask())
-    reluLayer.forward(3)
-    print("Upper bound slope", reluLayer.upper_bound_slope)
-    print("Lower bound slope", reluLayer.lower_bound_slope)
-    print("Updated upper bound", reluLayer.upper_bound)
-    print("Updated lower bound", reluLayer.lower_bound)
+    prev_ub = torch.tensor([[-1, 1], [2, 3], [2, 1]], dtype=torch.float32)
+    prev_lb = torch.tensor([[-3, -1], [1, -1], [1, -1]], dtype=torch.float32)
+    reluLayer = nn.LeakyReLU(negative_slope=2)
 
+    verifier = DeepPolyLeakyReLu(reluLayer)
+    verifier.forward((None, None, prev_ub, prev_lb, None))
+    ub, lb = verifier.compute_new_box()
+    print("Prev upper bound", prev_ub)
+    print("Prev lower bound", prev_lb)
+    print("Upper bound", ub)
+    print("Lower bound", lb)
+    print("Crossing relu mask", verifier.crossing_relu_mask())
+    us, ls = verifier.compute_slopes()
+    print("Upper slopes", us)
+    print("Lower slopes", ls)
+    ubias, lbias = verifier.compute_bias()
+    print("Upper bias", ubias)
+    print("Lower bias", lbias)
 
 if __name__ == "__main__":
     main()
