@@ -20,6 +20,10 @@ def check_postcondition(upper_bound, lower_bound, true_label):
         mask = torch.ones_like(upper_bound, dtype=torch.bool)
         mask[true_label] = False
         max_value = torch.max(torch.masked_select(upper_bound, mask))
+        # print("max_value", max_value)
+        # print("lower_bound", lower_bound)
+        # print("true_label", true_label)
+        # print("upper_bound", upper_bound)
         return max_value < lower_bound[true_label]
 
 def analyze(
@@ -38,7 +42,7 @@ def analyze(
         elif isinstance(layer, nn.ReLU):
             if prev_layer is None:
                 raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
-            poly_layer = DeepPolyReLu()
+            poly_layer = DeepPolyReLu(layer)
         elif isinstance(layer, nn.Conv2d):
             poly_layer = DeepPolyConvolution(layer)
         else:
@@ -55,6 +59,9 @@ def analyze(
 
     #upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, None))
     _orig_ub, _orig_lb, upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, upper_bound, lower_bound, None))
+    # print("upper_bound", upper_bound)
+    # print("lower_bound", lower_bound)
+    # print("true_label", true_label)
 
     return check_postcondition(upper_bound, lower_bound, true_label)
 
@@ -108,6 +115,7 @@ def main():
         print("verified")
     else:
         print("not verified")
+
 
 
 if __name__ == "__main__":
