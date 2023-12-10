@@ -290,19 +290,19 @@ class DeepPolyReLu(DeepPolyBase):
             self.upper_bound, float("nan"), dtype=torch.float32
         )
 
-        constraints = self.backsubstitution(constraints, prev_lb)
+        constraints = self.backsubstitution(constraints, prev_lb, prev_ub)
         # Update box bounds
         self.update_upper_and_lower_bound_()
 
         return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
 
-    def backsubstitution(self, constraints, prev_lb):
+    def backsubstitution(self, constraints, prev_lb, prev_ub):
         # Compute DeepPoly slopes
         self.compute_relu_slopes(self.upper_bound, self.lower_bound)
         # Compute constraints
         new_upper_constraints, new_lower_constraints = self.updated_constraints(constraints)
         # Compute bias
-        upper_bias, lower_bias = self.updated_bias(constraints, prev_lb)
+        upper_bias, lower_bias = self.updated_bias(constraints, prev_lb, prev_ub)
         # Update box bounds
         self.update_upper_and_lower_bound_()
 
@@ -320,53 +320,52 @@ class DeepPolyReLu(DeepPolyBase):
         """
         assert isinstance(constraints, Constraints)
 
-        num_constraints = constraints.upper_constraints.shape[0]
+        diag_ub = torch.diag(self.upper_bound_slope.view(-1))
+        diag_lb = torch.diag(self.lower_bound_slope.view(-1))
 
-        # Compute the new constraints for crossing ReLUs
-        upper_bound_slope_repeat = self.upper_bound_slope.T.repeat(num_constraints, 1)
-        lower_bound_slope_repeat = self.lower_bound_slope.T.repeat(num_constraints, 1)
-
-        new_upper_constraints = constraints.upper_constraints * upper_bound_slope_repeat
-        new_lower_constraints = constraints.lower_constraints * lower_bound_slope_repeat
-
-        positive_relu_mask_repeat = self.positive_relu_mask().T.repeat(num_constraints, 1)
-        negative_relu_mask_repeat = self.negative_relu_mask().T.repeat(num_constraints, 1)
-
-        # Compute the new constraints for positive ReLUs
-        new_upper_constraints[positive_relu_mask_repeat] = constraints.upper_constraints[positive_relu_mask_repeat]
-        new_lower_constraints[positive_relu_mask_repeat] = constraints.lower_constraints[positive_relu_mask_repeat]
-
-        # Compute the new constraints for negative ReLUs
-        new_upper_constraints[negative_relu_mask_repeat] = 0
-        new_lower_constraints[negative_relu_mask_repeat] = 0
+        new_upper_constraints = constraints.upper_constraints @ diag_ub
+        new_lower_constraints = constraints.lower_constraints @ diag_lb
 
         print("new_upper_constraints", new_upper_constraints)
+        print("constraints.upper_constraints", constraints.upper_constraints)
+        print("diag_ub", diag_ub)
+        print("upper_bound_slope", self.upper_bound_slope.view(-1))
 
         return new_upper_constraints, new_lower_constraints
 
-    def updated_bias(self, constraints, prev_lb):
+    def updated_bias(self, constraints, prev_lb, prev_ub):
         """
         Given the constraints from the previous layers
         compute the bias of this layer.
         """
         assert isinstance(constraints, Constraints)
 
-        # Compute the new bias for crossing ReLUs
-        upper_bound_slope = self.upper_bound_slope.view(-1)
-        lower_bound_slope = self.lower_bound_slope.view(-1)
-        positive_relu_mask = self.positive_relu_mask().view(-1)
-        negative_relu_mask = self.negative_relu_mask().view(-1)
+        print(self.crossing_relu_mask().shape)
+        print(self.upper_bound_slope.shape)
+        upper_slope_crossing = torch.where(self.crossing_relu_mask(), self.upper_bound_slope, torch.zeros_like(self.upper_bound_slope)).view(-1)
 
-        upper_bias = torch.mul(constraints.upper_bias.view(-1), upper_bound_slope) + torch.mul(upper_bound_slope, prev_lb.view(-1))
-        lower_bias = torch.mul(constraints.lower_bias.view(-1), lower_bound_slope)
 
-        # Compute the new bias for positive ReLUs
-        upper_bias[positive_relu_mask] = constraints.upper_bias[positive_relu_mask]
-        lower_bias[positive_relu_mask] = constraints.lower_bias[positive_relu_mask]
+        # print("####### upper_slope_crossing", upper_slope_crossing.shape)
+        print("####### upper_slope_crossing", upper_slope_crossing)
 
-        # Compute the new bias for negative ReLUs
-        upper_bias[negative_relu_mask] = 0
-        lower_bias[negative_relu_mask] = 0
+
+        upper_bias = constraints.upper_bias * self.upper_bound_slope.view(-1) - upper_slope_crossing * prev_lb.view(-1)
+        lower_bias = constraints.lower_bias * self.lower_bound_slope.view(-1)
+
+        diag_ub = torch.diag(self.upper_bound_slope.view(-1))
+        diag_lb = torch.diag(self.lower_bound_slope.view(-1))
+
+        #upper_bias = constraints.upper_bias @ diag_ub + diag_ub @ prev_lb
+        #lower_bias = constraints.lower_bias @ diag_lb
+
+        # print("####### lower_bias", lower_bias)
+        # print("lower_bias", lower_bias.shape)
+        # print("####### constraints.lower_bias", constraints.lower_bias)
+        # print("####### self.lower_bound_slope", self.lower_bound_slope.view(-1))
+        # print("####### prev_lb", prev_lb)
+        # print("####### prev_ub", prev_ub)
+        # print("####### self.upper_bound_slope", self.upper_bound_slope.view(-1))
+        # print("self.upper_bound_slope", self.upper_bound_slope.view(-1))
 
         # Check if bias is valid
         assert upper_bias.shape == lower_bias.shape
@@ -396,9 +395,13 @@ class DeepPolyReLu(DeepPolyBase):
             ub[self.crossing_relu_mask()] - lb[self.crossing_relu_mask()]
         )
 
+        ub_slopes[self.positive_relu_mask()] = 1
+        ub_slopes[self.negative_relu_mask()] = 0
+
         # Check if slopes valid
         assert ub_slopes.shape == ub.shape
         assert (ub_slopes < 0).sum() == 0
+        assert sum(ub_slopes.isnan()) == 0
         # assert torch.isnan(ub_slopes).sum() == self.crossing_relu_mask().sum()
 
         return ub_slopes
@@ -418,8 +421,12 @@ class DeepPolyReLu(DeepPolyBase):
         lb_slopes[self.deep_poly_variant_1_mask()] = 0
         lb_slopes[self.deep_poly_variant_2_mask()] = 1
 
+        lb_slopes[self.positive_relu_mask()] = 1
+        lb_slopes[self.negative_relu_mask()] = 0
+
         # Check if slope is valid
         assert lb_slopes.shape == lb.shape
+        assert (lb_slopes < 0).sum() == 0
         # print(lb_slopes)
         # assert torch.isnan(lb_slopes).sum() == self.crossing_relu_mask().sum()
 

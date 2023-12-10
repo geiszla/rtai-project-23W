@@ -20,10 +20,10 @@ def check_postcondition(upper_bound, lower_bound, true_label):
         mask = torch.ones_like(upper_bound, dtype=torch.bool)
         mask[true_label] = False
         max_value = torch.max(torch.masked_select(upper_bound, mask))
-        print("max_value", max_value)
-        print("lower_bound", lower_bound)
-        print("true_label", true_label)
-        print("upper_bound", upper_bound)
+        # print("max_value", max_value)
+        # print("lower_bound", lower_bound)
+        # print("true_label", true_label)
+        # print("upper_bound", upper_bound)
         return max_value < lower_bound[true_label]
 
 def analyze(
@@ -115,6 +115,7 @@ def main():
         print("verified")
     else:
         print("not verified")
+
 
 
 if __name__ == "__main__":
