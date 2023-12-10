@@ -364,6 +364,7 @@ class DeepPolyReLu(DeepPolyBase):
     def deep_poly_variant_2_mask(self):
         return self.crossing_relu_mask() & (self.upper_bound > abs(self.lower_bound))
 
+
 class DeepPolyLeakyReLu(DeepPolyBase):
     def __init__(self, layer):
         super(DeepPolyLeakyReLu, self).__init__()
@@ -389,24 +390,33 @@ class DeepPolyLeakyReLu(DeepPolyBase):
         assert torch.all(self.prev_ub > self.prev_lb)
 
         # Initialize with NaN
-        upper_bound = torch.full_like(self.prev_ub, float('nan'), dtype=torch.float32)
-        lower_bound = torch.full_like(self.prev_lb, float('nan'), dtype=torch.float32)
+        upper_bound = torch.full_like(self.prev_ub, float("nan"), dtype=torch.float32)
+        lower_bound = torch.full_like(self.prev_lb, float("nan"), dtype=torch.float32)
 
         # Upper bound
         upper_bound[self.prev_ub > 0] = self.prev_ub[self.prev_ub > 0]
-        upper_bound[self.prev_ub <= 0] = self.leaky_relu_slope * self.prev_ub[self.prev_ub <= 0]
+        upper_bound[self.prev_ub <= 0] = (
+            self.leaky_relu_slope * self.prev_ub[self.prev_ub <= 0]
+        )
 
         # Lower bound
         lower_bound[self.prev_lb > 0] = self.prev_lb[self.prev_lb > 0]
-        lower_bound[self.prev_lb <= 0] = self.leaky_relu_slope * self.prev_lb[self.prev_lb <= 0]
+        lower_bound[self.prev_lb <= 0] = (
+            self.leaky_relu_slope * self.prev_lb[self.prev_lb <= 0]
+        )
 
-        assert upper_bound.shape == lower_bound.shape == self.prev_ub.shape == self.prev_lb.shape
+        assert (
+            upper_bound.shape
+            == lower_bound.shape
+            == self.prev_ub.shape
+            == self.prev_lb.shape
+        )
         assert (upper_bound < lower_bound).sum() == 0
         assert upper_bound.isnan().sum() == 0
         assert lower_bound.isnan().sum() == 0
 
         return upper_bound, lower_bound
-    
+
     def compute_slopes(self):
         """
         Compute the slopes of the upper and lower bound for the constraints.
@@ -416,7 +426,7 @@ class DeepPolyLeakyReLu(DeepPolyBase):
             return self.compute_slope_bigger_one()
         else:
             return self.compute_slope_smaller_one()
-    
+
     def compute_bias(self):
         """
         Compute the bias of the upper and lower bound for the constraints.
@@ -426,7 +436,7 @@ class DeepPolyLeakyReLu(DeepPolyBase):
             return self.compute_bias_bigger_one()
         else:
             return self.compute_bias_smaller_one()
-        
+
     def compute_constraints(self):
         """
         Computes all constraints for the leaky relu layer.
@@ -439,41 +449,66 @@ class DeepPolyLeakyReLu(DeepPolyBase):
         upper_slopes, lower_slopes = self.compute_slopes()
         upper_bias, lower_bias = self.compute_bias()
 
-        assert upper_slopes.shape == lower_slopes.shape == self.prev_ub.shape == self.prev_lb.shape
-        assert upper_bias.shape == lower_bias.shape == self.prev_ub.shape == self.prev_lb.shape
-
+        assert (
+            upper_slopes.shape
+            == lower_slopes.shape
+            == self.prev_ub.shape
+            == self.prev_lb.shape
+        )
+        assert (
+            upper_bias.shape
+            == lower_bias.shape
+            == self.prev_ub.shape
+            == self.prev_lb.shape
+        )
 
         return Constraints(upper_slopes, lower_slopes, upper_bias, lower_bias)
 
     def crossing_relu_mask(self):
-        return (self.prev_ub> 0) & (self.prev_lb < 0)
-    
-    def compute_slope_bigger_one(self):
+        return (self.prev_ub > 0) & (self.prev_lb < 0)
 
+    def compute_slope_bigger_one(self):
         # Initialize with NaN
-        upper_slopes = torch.full_like(self.prev_ub, float('nan'), dtype=torch.float32)
-        lower_slopes = torch.full_like(self.prev_lb, float('nan'), dtype=torch.float32)
+        upper_slopes = torch.full_like(self.prev_ub, float("nan"), dtype=torch.float32)
+        lower_slopes = torch.full_like(self.prev_lb, float("nan"), dtype=torch.float32)
 
         # Upper slopes
         upper_slopes[self.crossing_relu_mask()] = 1
 
         # Lower slopes
         # (ub - a*lb) / (ub - lb)
-        rise = self.prev_ub[self.crossing_relu_mask()] - (self.leaky_relu_slope * self.prev_lb[self.crossing_relu_mask()])
-        run = self.prev_ub[self.crossing_relu_mask()] - self.prev_lb[self.crossing_relu_mask()]
+        rise = self.prev_ub[self.crossing_relu_mask()] - (
+            self.leaky_relu_slope * self.prev_lb[self.crossing_relu_mask()]
+        )
+        run = (
+            self.prev_ub[self.crossing_relu_mask()]
+            - self.prev_lb[self.crossing_relu_mask()]
+        )
         lower_slopes[self.crossing_relu_mask()] = rise / run
 
         # Only crossing relus have slopes, else nan
         return upper_slopes, lower_slopes
-    
+
     def compute_slope_smaller_one(self):
-        # Andras implementation
-        raise NotImplementedError
+        upper_slopes = torch.full_like(self.prev_ub, float("nan"), dtype=torch.float32)
+        lower_slopes = torch.full_like(self.prev_lb, float("nan"), dtype=torch.float32)
+
+        # Compute slopes
+        upper_slopes[self.crossing_relu_mask()] = self.prev_ub[
+            self.crossing_relu_mask()
+        ] / (
+            self.prev_ub[self.crossing_relu_mask()]
+            - self.prev_lb[self.crossing_relu_mask()]
+        )
+
+        lower_slopes[self.crossing_relu_mask()] = 1
+
+        return lower_slopes
 
     def compute_bias_bigger_one(self):
         # Initialize with NaN
-        upper_bias = torch.full_like(self.prev_ub, float('nan'), dtype=torch.float32)
-        lower_bias = torch.full_like(self.prev_lb, float('nan'), dtype=torch.float32)
+        upper_bias = torch.full_like(self.prev_ub, float("nan"), dtype=torch.float32)
+        lower_bias = torch.full_like(self.prev_lb, float("nan"), dtype=torch.float32)
 
         # Get the indices of crossing relus
         crossing_indices = self.crossing_relu_mask()
@@ -482,13 +517,21 @@ class DeepPolyLeakyReLu(DeepPolyBase):
         upper_bias[crossing_indices] = 0
 
         # Lower bias
-        numerator = torch.square(self.prev_ub[crossing_indices]) - self.prev_ub[crossing_indices] * self.prev_lb[crossing_indices]
-        denominator = (self.prev_ub[crossing_indices] - self.leaky_relu_slope * self.prev_lb[crossing_indices])
-        lower_bias[crossing_indices] = self.prev_ub[crossing_indices] - (numerator / denominator)
+        numerator = (
+            torch.square(self.prev_ub[crossing_indices])
+            - self.prev_ub[crossing_indices] * self.prev_lb[crossing_indices]
+        )
+        denominator = (
+            self.prev_ub[crossing_indices]
+            - self.leaky_relu_slope * self.prev_lb[crossing_indices]
+        )
+        lower_bias[crossing_indices] = self.prev_ub[crossing_indices] - (
+            numerator / denominator
+        )
 
         # Only crossing relus have biases, else nan
         return upper_bias, lower_bias
-    
+
     def compute_bias_smaller_one(self):
         # Andras implementation
         raise NotImplementedError
@@ -526,6 +569,7 @@ def main():
     ubias, lbias = verifier.compute_bias()
     print("Upper bias", ubias)
     print("Lower bias", lbias)
+
 
 if __name__ == "__main__":
     main()
