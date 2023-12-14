@@ -328,12 +328,15 @@ class DeepPolyReLu(DeepPolyBase):
 
         # Compute constraints using backsubstitution
         constraints = self.backsubstitution(prev_constraints)
+        print("upper bound slope", self.upper_bound_slope)
+        print("lower bound slope", self.lower_bound_slope)
         print("constraints: ")
         print("Test")
         print("uc:", constraints.upper_constraints)
         print("lc:", constraints.lower_constraints)
         print("ub:", constraints.upper_bias)
         print("lb", constraints.lower_bias)
+
 
         # Update box bounds with constraints
         self.box_from_constraints(orig_ub, orig_lb, constraints)
@@ -370,11 +373,9 @@ class DeepPolyReLu(DeepPolyBase):
         diag_ub = torch.diag(self.upper_bound_slope.view(-1))
         diag_lb = torch.diag(self.lower_bound_slope.view(-1))
 
-        new_upper_constraints = prev_constraints.upper_constraints.where(prev_constraints.upper_constraints >= 0, 0) @ diag_ub \
-                                + prev_constraints.lower_constraints.where(prev_constraints.lower_constraints < 0, 0) @ diag_lb
+        new_upper_constraints = prev_constraints.upper_constraints @ diag_ub
         
-        new_lower_constraints = prev_constraints.lower_constraints.where(prev_constraints.lower_constraints >= 0, 0) @ diag_lb \
-                                + prev_constraints.upper_constraints.where(prev_constraints.upper_constraints < 0, 0) @ diag_ub
+        new_lower_constraints = prev_constraints.lower_constraints @ diag_lb
 
 
         assert new_upper_constraints.shape == prev_constraints.upper_constraints.shape
