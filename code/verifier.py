@@ -10,12 +10,11 @@ from deeppoly import DeepPolyLinear, DeepPolyFlatten, DeepPolyReLu, DeepPolyConv
 
 DEVICE = "cpu"
 
-"""
+
 net = test_model()
 image = torch.tensor([[0.0], [0.0]])
 eps = 1
 true_label = 0
-"""
 
 # def analyze(
 #     net: torch.nn.Module, inputs: torch.Tensor, eps: float, true_label: int
@@ -75,6 +74,7 @@ def analyze(
 
 
 def main():
+    """
     parser = argparse.ArgumentParser(
         description="Neural network verification using DeepPoly relaxation."
     )
@@ -116,7 +116,7 @@ def main():
 
     pred_label = out.max(dim=1)[1].item()
     assert pred_label == true_label
-
+    """
     if analyze(net, image, eps, true_label):
         print("verified")
     else:

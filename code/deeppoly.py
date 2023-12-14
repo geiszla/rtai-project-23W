@@ -113,6 +113,7 @@ class DeepPolyLinear(DeepPolyBase):
         """
         print("-----------linear layer-----------")
         orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
+        
 
         assert torch.all(prev_ub >= prev_lb)
         assert prev_ub.shape == prev_lb.shape
@@ -154,7 +155,6 @@ class DeepPolyLinear(DeepPolyBase):
         upper_bias, lower_bias = self.compute_new_bias(
             pos_weight, neg_weight, constraints
         )
-
         # Update the constraints
         updated_constraints = Constraints(
             new_upper_constraints, new_lower_constraints, upper_bias, lower_bias
@@ -326,6 +326,7 @@ class DeepPolyReLu(DeepPolyBase):
         self.prev_ub = prev_ub
         self.prev_lb = prev_lb
 
+        
         # Compute constraints using backsubstitution
         constraints = self.backsubstitution(prev_constraints)
         print("upper bound slope", self.upper_bound_slope)
@@ -340,19 +341,19 @@ class DeepPolyReLu(DeepPolyBase):
 
         # Update box bounds with constraints
         self.box_from_constraints(orig_ub, orig_lb, constraints)
+        
 
-        return orig_ub, orig_lb, self.upper_bound, self.lower_bound, prev_constraints
+        return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
     
     def backsubstitution(self, prev_constraints):
 
         # Compute DeepPoly slopes
         self.compute_relu_slopes()
+        # Compute bias
+        self.compute_bias()
 
         # Compute constraints
-        new_upper_constraints, new_lower_constraints = self.updated_constraints(prev_constraints)
-
-        # Compute bias
-        upper_bias, lower_bias = self.compute_bias(prev_constraints)
+        new_upper_constraints, new_lower_constraints, upper_bias, lower_bias = self.updated_constraints(prev_constraints)
 
         new_constraints = Constraints(
             new_upper_constraints, new_lower_constraints, upper_bias, lower_bias
@@ -365,11 +366,9 @@ class DeepPolyReLu(DeepPolyBase):
         Given the constraints from the previous layers,
         compute the constraints of this layer.
         """
-        assert isinstance(prev_constraints, Constraints)
+        # assert isinstance(prev_constraints, Constraints)
 
-        new_upper_constraints = torch.full_like(self.upper_bound_slope, float("nan"), dtype=torch.float32)
-        new_lower_constraints = torch.full_like(self.lower_bound_slope, float("nan"), dtype=torch.float32)
-
+        # Update the factor matrix
         diag_ub = torch.diag(self.upper_bound_slope.view(-1))
         diag_lb = torch.diag(self.lower_bound_slope.view(-1))
 
@@ -377,36 +376,29 @@ class DeepPolyReLu(DeepPolyBase):
         
         new_lower_constraints = prev_constraints.lower_constraints @ diag_lb
 
+        # update the bias
+        upper_bias = self.upper_bound_slope.view(-1) * prev_constraints.upper_bias \
+                        + self.this_layer_upper_bias
+        
+        lower_bias = self.lower_bound_slope.view(-1) * prev_constraints.lower_bias \
+                        + self.this_layer_lower_bias
+
 
         assert new_upper_constraints.shape == prev_constraints.upper_constraints.shape
         assert new_lower_constraints.shape == prev_constraints.lower_constraints.shape
         assert torch.isnan(new_upper_constraints).sum() == 0
         assert torch.isnan(new_lower_constraints).sum() == 0
 
-        return new_upper_constraints, new_lower_constraints
+        return new_upper_constraints, new_lower_constraints, upper_bias, lower_bias
 
-    def compute_bias(self, prev_constraints):
+    def compute_bias(self):
         """
         Given the constraints from the previous layers
         compute the bias of this layer.
         """
-        assert isinstance(prev_constraints, Constraints)
 
-        this_layer_upper_bias = (self.upper_bound_slope * (-1) * self.prev_lb).view(-1)
-        this_layer_lower_bias = torch.zeros_like(self.prev_lb).view(-1)
-
-        upper_bias = self.upper_bound_slope.view(-1) * prev_constraints.upper_bias \
-                        + this_layer_upper_bias
-        
-        lower_bias = self.lower_bound_slope.view(-1) * prev_constraints.lower_bias \
-                        + this_layer_lower_bias
-
-        assert upper_bias.shape == prev_constraints.upper_bias.shape
-        assert lower_bias.shape == prev_constraints.lower_bias.shape
-        assert upper_bias.isnan().sum() == 0
-        assert lower_bias.isnan().sum() == 0
-
-        return upper_bias, lower_bias
+        self.this_layer_upper_bias = (self.upper_bound_slope * (-1) * self.prev_lb).view(-1)
+        self.this_layer_lower_bias = torch.zeros_like(self.prev_lb).view(-1)
         
     def compute_relu_slopes(self):
         """
@@ -664,22 +656,21 @@ class Constraints:
 def main():
     prev_ub = torch.tensor([[-1, 1], [2, 3], [2, 1]], dtype=torch.float32)
     prev_lb = torch.tensor([[-3, -1], [1, -1], [1, -1]], dtype=torch.float32)
-    reluLayer = nn.LeakyReLU(negative_slope=2)
+    reluLayer = nn.ReLU()
 
-    verifier = DeepPolyLeakyReLu(reluLayer)
+    verifier = DeepPolyReLu(reluLayer)
     verifier.forward((None, None, prev_ub, prev_lb, None))
-    ub, lb = verifier.compute_new_box()
-    print("Prev upper bound", prev_ub)
-    print("Prev lower bound", prev_lb)
-    print("Upper bound", ub)
-    print("Lower bound", lb)
+    print("Prev upper bound", verifier.prev_ub)
+    print("Prev lower bound", verifier.prev_lb)
     print("Crossing relu mask", verifier.crossing_relu_mask())
-    us, ls = verifier.compute_slopes()
-    print("Upper slopes", us)
-    print("Lower slopes", ls)
-    ubias, lbias = verifier.compute_bias()
-    print("Upper bias", ubias)
-    print("Lower bias", lbias)
+    print("Positive relu mask", verifier.positive_relu_mask())
+    print("Negative relu mask", verifier.negative_relu_mask())
+    verifier.compute_relu_slopes()
+    print("Upper slopes", verifier.upper_bound_slope)
+    print("Lower slopes", verifier.lower_bound_slope)
+    verifier.compute_bias()
+    print("Upper bias", verifier.this_layer_upper_bias)
+    print("Lower bias", verifier.this_layer_lower_bias)
 
 
 if __name__ == "__main__":
