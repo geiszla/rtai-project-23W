@@ -3,13 +3,17 @@ import torch
 import torch.nn as nn
 
 
-from networks import get_network
+from networks import get_network, test_model
 from utils.loading import parse_spec
 # from box import certify_sample, AbstractBox
 from deeppoly import DeepPolyLinear, DeepPolyFlatten, DeepPolyReLu, DeepPolyConvolution
 
 DEVICE = "cpu"
 
+net = test_model()
+image = torch.tensor([[0.0], [0.0]])
+eps = 1
+true_label = 0
 
 # def analyze(
 #     net: torch.nn.Module, inputs: torch.Tensor, eps: float, true_label: int
@@ -53,9 +57,9 @@ def analyze(
     polynet = nn.Sequential(*layers)
 
     upper_bound = inputs + eps
-    upper_bound.clamp_(min=0, max=1)
+    #upper_bound.clamp_(min=0, max=1)
     lower_bound = inputs - eps
-    lower_bound.clamp_(min=0, max=1)
+    #lower_bound.clamp_(min=0, max=1)
 
     #upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, None))
     _orig_ub, _orig_lb, upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, upper_bound, lower_bound, None))
@@ -69,6 +73,7 @@ def analyze(
 
 
 def main():
+    """
     parser = argparse.ArgumentParser(
         description="Neural network verification using DeepPoly relaxation."
     )
@@ -98,7 +103,7 @@ def main():
 
     true_label, dataset, image, eps = parse_spec(args.spec)
 
-    # print(args.spec)
+    print(args.spec)
 
     net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
     print(net)
@@ -110,7 +115,7 @@ def main():
 
     pred_label = out.max(dim=1)[1].item()
     assert pred_label == true_label
-
+"""
     if analyze(net, image, eps, true_label):
         print("verified")
     else:

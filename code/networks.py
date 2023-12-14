@@ -3,6 +3,35 @@ import torch.nn as nn
 from typing import List, Tuple, Optional
 
 
+def test_model() -> nn.Sequential:
+    """"
+    Simple test case for verifier
+    """
+    weights_layer1 = torch.tensor([[1.0, 1.0], [1.0, -1.0]])
+    bias_layer1 = torch.tensor([0.0, 0.0])
+    weights_layer2 = torch.tensor([[1.0, 1.0], [1.0, -1.0]])
+    bias_layer2 = torch.tensor([-0.5, 0.0])
+    weights_layer3 = torch.tensor([[-1.0, 1.0]])
+    bias_layer3 = torch.tensor([3.0])
+
+    model_layers = []
+    layer1 = nn.Linear(2, 2)
+    layer1.weight.data = weights_layer1
+    layer1.bias.data = bias_layer1
+    model_layers.append(layer1)
+    model_layers.append(nn.ReLU())
+    layer2 = nn.Linear(2, 2)
+    layer2.weight.data = weights_layer2
+    layer2.bias.data = bias_layer2
+    model_layers.append(layer2)
+    model_layers.append(nn.ReLU())
+    layer3 = nn.Linear(2, 1)
+    layer3.weight.data = weights_layer3
+    layer3.bias.data = bias_layer3
+    model_layers.append(layer3)
+    	
+    return nn.Sequential(*model_layers)
+
 def dln_model(
     layers: List[int], in_ch: int = 1, in_dim: int = 28, num_class: int = 10
 ) -> nn.Sequential:
@@ -139,7 +168,6 @@ def get_network(
     assert dataset in ["mnist", "cifar10"], f"Invalid dataset: {dataset}"
 
     in_ch, in_dim = (1, 28) if dataset == "mnist" else (3, 32)
-
     if name == "fc_base":  # DLN
         model = dln_model(layers=[50, 50, 50], in_ch=in_ch, in_dim=in_dim, num_class=10)
     elif name == "fc_1":  # RELU
@@ -270,3 +298,12 @@ def get_network(
     model.eval()
 
     return model
+
+def main():
+    model = test_model()
+    print(model)
+    output = model.forward(torch.tensor([[1.0, 1.0]]))
+    print(output)
+    
+if __name__ == "__main__":
+    main()
