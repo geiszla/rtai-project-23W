@@ -8,7 +8,7 @@ def test_model() -> nn.Sequential:
     Simple test case for verifier
     """
     weights_layer1 = torch.tensor([[1.0, 1.0, 1.0], [-1.0, 1.0, -1.0]])
-    bias_layer1 = torch.tensor([0.0, 0.0, 0.0])
+    bias_layer1 = torch.tensor([0.0, 0.0])
     weights_layer2 = torch.tensor([[1.0, 1.0], [1.0, -1.0]])
     bias_layer2 = torch.tensor([-0.5, 0.0])
     weights_layer3 = torch.tensor([[-1.0, 1.0]])

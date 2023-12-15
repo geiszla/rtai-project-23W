@@ -3,23 +3,13 @@ import torch
 import torch.nn as nn
 
 
-from networks import get_network, test_model
+from networks import get_network
 from utils.loading import parse_spec
 # from box import certify_sample, AbstractBox
 from deeppoly import DeepPolyLinear, DeepPolyFlatten, DeepPolyReLu, DeepPolyConvolution
 
 DEVICE = "cpu"
 
-
-net = test_model()
-example = 1
-if example == 1:
-    image = torch.tensor([[3.5], [0.0], [0.0]])
-    eps = 1
-else:
-    image = torch.tensor([[0.5], [0.5]])
-    eps = 0.5
-true_label = 0
 
 # def analyze(
 #     net: torch.nn.Module, inputs: torch.Tensor, eps: float, true_label: int
@@ -62,12 +52,10 @@ def analyze(
 
     polynet = nn.Sequential(*layers)
 
-    upper_bound = torch.tensor([[4.0000], [1.0000], [1.0000]]) #inputs + eps
-    #upper_bound.clamp_(min=0, max=1)
-    lower_bound = torch.tensor([[3.0000], [-1.0000], [-1.0000]]) #inputs - eps
-    #lower_bound.clamp_(min=0, max=1)
-
-    print("########## upper_bound", upper_bound)
+    upper_bound = inputs + eps
+    upper_bound.clamp_(min=0, max=1)
+    lower_bound = inputs - eps
+    lower_bound.clamp_(min=0, max=1)
 
     #upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, None))
     _orig_ub, _orig_lb, upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, upper_bound, lower_bound, None))
@@ -81,47 +69,47 @@ def analyze(
 
 
 def main():
-    # parser = argparse.ArgumentParser(
-    #     description="Neural network verification using DeepPoly relaxation."
-    # )
-    # parser.add_argument(
-    #     "--net",
-    #     type=str,
-    #     choices=[
-    #         "fc_base",
-    #         "fc_1",
-    #         "fc_2",
-    #         "fc_3",
-    #         "fc_4",
-    #         "fc_5",
-    #         "fc_6",
-    #         "fc_7",
-    #         "conv_base",
-    #         "conv_1",
-    #         "conv_2",
-    #         "conv_3",
-    #         "conv_4",
-    #     ],
-    #     required=True,
-    #     help="Neural network architecture which is supposed to be verified.",
-    # )
-    # parser.add_argument("--spec", type=str, required=True, help="Test case to verify.")
-    # args = parser.parse_args()
+    parser = argparse.ArgumentParser(
+        description="Neural network verification using DeepPoly relaxation."
+    )
+    parser.add_argument(
+        "--net",
+        type=str,
+        choices=[
+            "fc_base",
+            "fc_1",
+            "fc_2",
+            "fc_3",
+            "fc_4",
+            "fc_5",
+            "fc_6",
+            "fc_7",
+            "conv_base",
+            "conv_1",
+            "conv_2",
+            "conv_3",
+            "conv_4",
+        ],
+        required=True,
+        help="Neural network architecture which is supposed to be verified.",
+    )
+    parser.add_argument("--spec", type=str, required=True, help="Test case to verify.")
+    args = parser.parse_args()
 
-    # true_label, dataset, image, eps = parse_spec(args.spec)
+    true_label, dataset, image, eps = parse_spec(args.spec)
 
     # print(args.spec)
 
-    # net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
-    # print(net)
-    # print(args.net)
-    # print(args.spec)
+    net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
+    print(net)
+    print(args.net)
+    print(args.spec)
 
-    # image = image.to(DEVICE)
-    # out = net(image.unsqueeze(0))
+    image = image.to(DEVICE)
+    out = net(image.unsqueeze(0))
 
-    # pred_label = out.max(dim=1)[1].item()
-    # assert pred_label == true_label
+    pred_label = out.max(dim=1)[1].item()
+    assert pred_label == true_label
 
     if analyze(net, image, eps, true_label):
         print("verified")

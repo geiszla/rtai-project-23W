@@ -341,8 +341,8 @@ class DeepPolyReLu(DeepPolyBase):
 
         # Update box bounds with constraints
         self.box_from_constraints(orig_ub, orig_lb, constraints)
-        
-
+        print("upper bound: ", self.upper_bound)
+        print("lower bound: ", self.lower_bound)
         return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
     
     def backsubstitution(self, prev_constraints):
@@ -397,8 +397,11 @@ class DeepPolyReLu(DeepPolyBase):
         compute the bias of this layer.
         """
 
-        self.this_layer_upper_bias = (self.upper_bound_slope * (-1) * self.prev_lb).view(-1)
+        self.this_layer_upper_bias = (self.upper_bound_slope * (-1) * self.prev_lb)
         self.this_layer_lower_bias = torch.zeros_like(self.prev_lb).view(-1)
+        self.this_layer_upper_bias[~self.crossing_relu_mask()] = 0
+        self.this_layer_upper_bias = self.this_layer_upper_bias.view(-1)
+
         
     def compute_relu_slopes(self):
         """
