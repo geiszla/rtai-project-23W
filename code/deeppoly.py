@@ -125,13 +125,16 @@ class DeepPolyLinear(DeepPolyBase):
         print("pos_weight linear ", pos_weight.shape)
         print("constraints.upper_bias linear ", constraints.upper_bias.shape)
         upper_bias = (
-            pos_weight @ constraints.upper_bias + neg_weight @ constraints.lower_bias + self.bias
+            pos_weight @ constraints.upper_bias
+            + neg_weight @ constraints.lower_bias
+            + self.bias
         )
         lower_bias = (
-            pos_weight @ constraints.lower_bias + neg_weight @ constraints.upper_bias + self.bias
+            pos_weight @ constraints.lower_bias
+            + neg_weight @ constraints.upper_bias
+            + self.bias
         )
         return upper_bias, lower_bias
-
 
     def box_from_constraints(self, prev_ub, prev_lb, constraints):
         """
@@ -270,11 +273,15 @@ class DeepPolyConvolution(DeepPolyLinear):
 
 
 class DeepPolyReLu(DeepPolyBase):
-    def __init__(self, layer):
+    def __init__(self, layer, input_size):
         super(DeepPolyReLu, self).__init__()
 
         self.upper_bound_slope = None
         self.lower_bound_slope = None
+
+        # Initialize the alpha learnable parameters
+        self.alpha = torch.nn.Parameter(torch.rand(input_size))
+        self.alpha.requires_grad = True
 
     def forward(self, inputs):
         print("relu layer")
@@ -300,7 +307,9 @@ class DeepPolyReLu(DeepPolyBase):
         # Compute DeepPoly slopes
         self.compute_relu_slopes(self.upper_bound, self.lower_bound)
         # Compute constraints
-        new_upper_constraints, new_lower_constraints = self.updated_constraints(constraints)
+        new_upper_constraints, new_lower_constraints = self.updated_constraints(
+            constraints
+        )
         # Compute bias
         upper_bias, lower_bias = self.updated_bias(constraints, prev_lb, prev_ub)
         # Update box bounds
@@ -311,7 +320,6 @@ class DeepPolyReLu(DeepPolyBase):
         )
 
         return new_constraints
-
 
     def updated_constraints(self, constraints):
         """
@@ -342,21 +350,25 @@ class DeepPolyReLu(DeepPolyBase):
 
         print(self.crossing_relu_mask().shape)
         print(self.upper_bound_slope.shape)
-        upper_slope_crossing = torch.where(self.crossing_relu_mask(), self.upper_bound_slope, torch.zeros_like(self.upper_bound_slope)).view(-1)
-
+        upper_slope_crossing = torch.where(
+            self.crossing_relu_mask(),
+            self.upper_bound_slope,
+            torch.zeros_like(self.upper_bound_slope),
+        ).view(-1)
 
         # print("####### upper_slope_crossing", upper_slope_crossing.shape)
         print("####### upper_slope_crossing", upper_slope_crossing)
 
-
-        upper_bias = constraints.upper_bias * self.upper_bound_slope.view(-1) - upper_slope_crossing * prev_lb.view(-1)
+        upper_bias = constraints.upper_bias * self.upper_bound_slope.view(
+            -1
+        ) - upper_slope_crossing * prev_lb.view(-1)
         lower_bias = constraints.lower_bias * self.lower_bound_slope.view(-1)
 
         diag_ub = torch.diag(self.upper_bound_slope.view(-1))
         diag_lb = torch.diag(self.lower_bound_slope.view(-1))
 
-        #upper_bias = constraints.upper_bias @ diag_ub + diag_ub @ prev_lb
-        #lower_bias = constraints.lower_bias @ diag_lb
+        # upper_bias = constraints.upper_bias @ diag_ub + diag_ub @ prev_lb
+        # lower_bias = constraints.lower_bias @ diag_lb
 
         # print("####### lower_bias", lower_bias)
         # print("lower_bias", lower_bias.shape)
@@ -373,7 +385,7 @@ class DeepPolyReLu(DeepPolyBase):
         assert upper_bias.isnan().sum() == 0
 
         return upper_bias, lower_bias
-    
+
     def update_upper_and_lower_bound_(self):
         # After computing the slopes we
         # update box bounds
@@ -419,7 +431,7 @@ class DeepPolyReLu(DeepPolyBase):
 
         # Compute slope
         lb_slopes[self.deep_poly_variant_1_mask()] = 0
-        lb_slopes[self.deep_poly_variant_2_mask()] = 1
+        lb_slopes[self.deep_poly_variant_2_mask()] = self.alpha
 
         lb_slopes[self.positive_relu_mask()] = 1
         lb_slopes[self.negative_relu_mask()] = 0
