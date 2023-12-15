@@ -7,15 +7,15 @@ def test_model() -> nn.Sequential:
     """"
     Simple test case for verifier
     """
-    weights_layer1 = torch.tensor([[1.0, 1.0], [1.0, -1.0]])
-    bias_layer1 = torch.tensor([0.0, 0.0])
+    weights_layer1 = torch.tensor([[1.0, 1.0, 1.0], [-1.0, 1.0, -1.0]])
+    bias_layer1 = torch.tensor([0.0, 0.0, 0.0])
     weights_layer2 = torch.tensor([[1.0, 1.0], [1.0, -1.0]])
     bias_layer2 = torch.tensor([-0.5, 0.0])
     weights_layer3 = torch.tensor([[-1.0, 1.0]])
     bias_layer3 = torch.tensor([3.0])
 
     model_layers = []
-    layer1 = nn.Linear(2, 2)
+    layer1 = nn.Linear(3, 2)
     layer1.weight.data = weights_layer1
     layer1.bias.data = bias_layer1
     model_layers.append(layer1)
@@ -302,7 +302,7 @@ def get_network(
 def main():
     model = test_model()
     print(model)
-    output = model.forward(torch.tensor([[1.0, 1.0]]))
+    output = model.forward(torch.tensor([[1.0, 1.0, 1.0]]))
     print(output)
     
 if __name__ == "__main__":
