@@ -119,14 +119,14 @@ class DeepPolyLinear(DeepPolyBase):
         assert prev_ub.shape == prev_lb.shape
 
         constraints = self.backsubstitution(constraints)
-        print("constraints: ")
-        print("uc:", constraints.upper_constraints)
-        print("lc:", constraints.lower_constraints)
-        print("ub:", constraints.upper_bias)
-        print("lb", constraints.lower_bias)
+        # print("constraints: ")
+        # print("uc:", constraints.upper_constraints)
+        # print("lc:", constraints.lower_constraints)
+        # print("ub:", constraints.upper_bias)
+        # print("lb", constraints.lower_bias)
         self.box_from_constraints(orig_ub, orig_lb, constraints)
-        print("upper bound: ", self.upper_bound)
-        print("lower bound: ", self.lower_bound)
+        # print("upper bound: ", self.upper_bound)
+        # print("lower bound: ", self.lower_bound)
 
         assert torch.all(self.upper_bound >= self.lower_bound)
         assert self.upper_bound.shape == self.lower_bound.shape
@@ -329,20 +329,20 @@ class DeepPolyReLu(DeepPolyBase):
         
         # Compute constraints using backsubstitution
         constraints = self.backsubstitution(prev_constraints)
-        print("upper bound slope", self.upper_bound_slope)
-        print("lower bound slope", self.lower_bound_slope)
-        print("constraints: ")
-        print("Test")
-        print("uc:", constraints.upper_constraints)
-        print("lc:", constraints.lower_constraints)
-        print("ub:", constraints.upper_bias)
-        print("lb", constraints.lower_bias)
+        # print("upper bound slope", self.upper_bound_slope)
+        # print("lower bound slope", self.lower_bound_slope)
+        # print("constraints: ")
+        # print("Test")
+        # print("uc:", constraints.upper_constraints)
+        # print("lc:", constraints.lower_constraints)
+        # print("ub:", constraints.upper_bias)
+        # print("lb", constraints.lower_bias)
 
 
         # Update box bounds with constraints
         self.box_from_constraints(orig_ub, orig_lb, constraints)
-        print("upper bound: ", self.upper_bound)
-        print("lower bound: ", self.lower_bound)
+        # print("upper bound: ", self.upper_bound)
+        # print("lower bound: ", self.lower_bound)
         return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
     
     def backsubstitution(self, prev_constraints):
@@ -663,17 +663,17 @@ def main():
 
     verifier = DeepPolyReLu(reluLayer)
     verifier.forward((None, None, prev_ub, prev_lb, None))
-    print("Prev upper bound", verifier.prev_ub)
-    print("Prev lower bound", verifier.prev_lb)
-    print("Crossing relu mask", verifier.crossing_relu_mask())
-    print("Positive relu mask", verifier.positive_relu_mask())
-    print("Negative relu mask", verifier.negative_relu_mask())
+    # print("Prev upper bound", verifier.prev_ub)
+    # print("Prev lower bound", verifier.prev_lb)
+    # print("Crossing relu mask", verifier.crossing_relu_mask())
+    # print("Positive relu mask", verifier.positive_relu_mask())
+    # print("Negative relu mask", verifier.negative_relu_mask())
     verifier.compute_relu_slopes()
-    print("Upper slopes", verifier.upper_bound_slope)
-    print("Lower slopes", verifier.lower_bound_slope)
+    # print("Upper slopes", verifier.upper_bound_slope)
+    # print("Lower slopes", verifier.lower_bound_slope)
     verifier.compute_bias()
-    print("Upper bias", verifier.this_layer_upper_bias)
-    print("Lower bias", verifier.this_layer_lower_bias)
+    # print("Upper bias", verifier.this_layer_upper_bias)
+    # print("Lower bias", verifier.this_layer_lower_bias)
 
 
 if __name__ == "__main__":
