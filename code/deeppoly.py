@@ -190,10 +190,14 @@ class DeepPolyLinear(DeepPolyBase):
         # Compute the new bias
 
         upper_bias = (
-            pos_weight @ constraints.upper_bias + neg_weight @ constraints.lower_bias + self.bias
+            pos_weight @ constraints.upper_bias
+            + neg_weight @ constraints.lower_bias
+            + self.bias
         )
         lower_bias = (
-            pos_weight @ constraints.lower_bias + neg_weight @ constraints.upper_bias + self.bias
+            pos_weight @ constraints.lower_bias
+            + neg_weight @ constraints.upper_bias
+            + self.bias
         )
         return upper_bias, lower_bias
 
@@ -338,8 +342,12 @@ class DeepPolyConvolution(DeepPolyLinear):
 
 
 class DeepPolyReLu(DeepPolyBase):
-    def __init__(self, layer):
+    def __init__(self, layer, input_size):
         super(DeepPolyReLu, self).__init__()
+
+        # Initialize the alpha learnable parameters
+        self.alpha = torch.nn.Parameter(torch.rand(input_size))
+        self.alpha.requires_grad = True
 
     def forward(self, inputs):
         # print("-------------relu layer---------------")
@@ -482,7 +490,7 @@ class DeepPolyReLu(DeepPolyBase):
 
         # Compute slope
         lb_slopes[self.deep_poly_variant_1_mask()] = 0
-        lb_slopes[self.deep_poly_variant_2_mask()] = 1
+        lb_slopes[self.deep_poly_variant_2_mask()] = self.alpha
 
         lb_slopes[self.positive_relu_mask()] = 1
         lb_slopes[self.negative_relu_mask()] = 0
