@@ -28,7 +28,7 @@ def check_postcondition(upper_bound, lower_bound, true_label):
     # print("lower_bound", lower_bound)
     # print("true_label", true_label)
     # print("upper_bound", upper_bound)
-    return max_value < lower_bound[true_label]
+    return lower_bound[true_label] - max_value #max_value < lower_bound[true_label]
 
 
 def analyze(
@@ -46,7 +46,7 @@ def analyze(
         elif isinstance(layer, nn.ReLU):
             if prev_layer is None:
                 raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
-            poly_layer = DeepPolyReLu(layer)
+            poly_layer = DeepPolyReLu(layer, prev_layer.out_features)
         elif isinstance(layer, nn.LeakyReLU):
             if prev_layer is None:
                 raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
@@ -57,7 +57,7 @@ def analyze(
             raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
         layers.append(poly_layer)
-        prev_layer = poly_layer
+        prev_layer = layer
 
     polynet = nn.Sequential(*layers)
 
@@ -67,9 +67,7 @@ def analyze(
     lower_bound.clamp_(min=0, max=1)
 
     # upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, None))
-    _orig_ub, _orig_lb, upper_bound, lower_bound, _constraints = polynet(
-        (upper_bound, lower_bound, upper_bound, lower_bound, None)
-    )
+    
     # print("upper_bound", upper_bound)
     # print("lower_bound", lower_bound)
     # print("true_label", true_label)
@@ -77,26 +75,44 @@ def analyze(
     optimizer = optim.Adam(polynet.parameters(), lr=0.7)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.75)
 
-    for _ in range(10):
+    for name, param in polynet.named_parameters():
+        if "alpha" not in name:
+            param.requires_grad = False
+
+    # for name, param in polynet.named_parameters():
+    #     print(name, param.requires_grad)
+
+    for _ in range(100):
+        _orig_ub, _orig_lb, upper_bound_result, lower_bound_result, _constraints = polynet(
+        (upper_bound, lower_bound, upper_bound, lower_bound, None)
+        )
         optimizer.zero_grad()
 
-        result = check_postcondition(upper_bound, lower_bound, true_label)
+        result = check_postcondition(upper_bound_result, lower_bound_result, true_label)
 
-        if (result > 0).all():
+        if (result > 0):
             return True
 
-        loss = torch.log(-result[result < 0]).max()
+        #print("Alpha:", polynet[2].alpha.data[:10])
+
+        loss = torch.log(-result)
         loss.backward()
         optimizer.step()
 
-        for parameter in polynet.parameters():
-            if parameter.requires_grad:
-                parameter.data.clamp_(0, 1)
+        print(f"loss: {loss.item()}")
 
         if scheduler.get_last_lr()[0] > 0.1:
             scheduler.step()
 
-    return result
+        for parameter in polynet.parameters():
+            if parameter.requires_grad:
+                parameter.data = parameter.data.clamp_(0, 1)
+        
+        
+
+        
+
+    return result > 0
 
 
 def main():
@@ -132,7 +148,7 @@ def main():
     # print(args.spec)
 
     net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
-    # print(net)
+    print(net)
     print(args.net)
     print(args.spec)
 

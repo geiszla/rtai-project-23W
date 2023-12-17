@@ -344,10 +344,12 @@ class DeepPolyConvolution(DeepPolyLinear):
 class DeepPolyReLu(DeepPolyBase):
     def __init__(self, layer, input_size):
         super(DeepPolyReLu, self).__init__()
+        self.alpha = nn.Parameter(torch.rand((input_size, 1)))
+        self.alpha.requires_grad = True
 
         # Initialize the alpha learnable parameters
-        self.alpha = torch.nn.Parameter(torch.rand(input_size))
-        self.alpha.requires_grad = True
+        # self.alpha = torch.nn.Parameter(torch.rand(input_size))
+        # self.alpha.requires_grad = True
 
     def forward(self, inputs):
         # print("-------------relu layer---------------")
@@ -490,7 +492,14 @@ class DeepPolyReLu(DeepPolyBase):
 
         # Compute slope
         lb_slopes[self.deep_poly_variant_1_mask()] = 0
-        lb_slopes[self.deep_poly_variant_2_mask()] = self.alpha
+        lb_slopes[self.deep_poly_variant_2_mask()] = 1
+
+        #self.alpha = nn.Parameter(lb_slopes.clone())
+
+        # print first 10 values of alpha
+        # print("alpha", self.alpha[:10])
+
+        lb_slopes[self.crossing_relu_mask()] = self.alpha[self.crossing_relu_mask()]
 
         lb_slopes[self.positive_relu_mask()] = 1
         lb_slopes[self.negative_relu_mask()] = 0
