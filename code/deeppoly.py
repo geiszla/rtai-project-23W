@@ -241,10 +241,11 @@ class DeepPolyFlatten(DeepPolyBase):
         Pushing the previous box through this layer.
         """
         orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
-        print("---------flatten layer-------------")
-        flatten = nn.Flatten()
-        lb = flatten(prev_lb).T
-        ub = flatten(prev_ub).T
+        # print("---------flatten layer-------------")
+
+        flatten = nn.Flatten(start_dim=0)
+        lb = flatten(prev_lb).unsqueeze(1)
+        ub = flatten(prev_ub).unsqueeze(1)
         self.lower_bound = lb
         self.upper_bound = ub
 
@@ -274,11 +275,9 @@ class DeepPolyConvolution(DeepPolyLinear):
         self.layer = layer
 
     def forward(self, inputs):
-        print("--------------conv layer--------------")
+        # print("--------------conv layer--------------")
         orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
         assert prev_ub.shape == prev_lb.shape
-
-        print("prev_ub", prev_ub.shape)
 
         # check wether input shape has 3 or 4 dimensions
         if len(prev_ub.shape) == 3:
@@ -292,10 +291,6 @@ class DeepPolyConvolution(DeepPolyLinear):
         else:
             raise ValueError("Input shape error in conv layer") 
         _, _, kernel_height, kernel_width = self.layer.weight.data.shape
-
-        print("input_height", input_height)
-        print("input_width", input_width)
-        print("input height type", type(input_height))
 
         stride = self.layer.stride[0]
         padding = self.layer.padding[0]
