@@ -371,6 +371,7 @@ class DeepPolyReLu(DeepPolyBase):
         diag_ub = torch.diag(self.upper_bound_slope.view(-1))
         diag_lb = torch.diag(self.lower_bound_slope.view(-1))
 
+
         new_upper_constraints = prev_constraints.upper_constraints @ diag_ub
         
         new_lower_constraints = prev_constraints.lower_constraints @ diag_lb
@@ -502,8 +503,8 @@ class DeepPolyLeakyReLu(DeepPolyReLu):
         else:
             ub, lb = self.compute_bias_smaller_one()
 
-        self.this_layer_upper_bias = ub
-        self.this_layer_lower_bias = lb
+        self.this_layer_upper_bias = ub.view(-1)
+        self.this_layer_lower_bias = lb.view(-1)
 
     def compute_slope_bigger_one(self):
 
@@ -532,9 +533,6 @@ class DeepPolyLeakyReLu(DeepPolyReLu):
         # Check if slopes valid
         assert torch.isnan(upper_slopes).sum() == 0
         assert torch.isnan(lower_slopes).sum() == 0
-
-        print("upper slopes: ", upper_slopes)
-        print("lower slopes: ", lower_slopes)
 
         return upper_slopes, lower_slopes
 
@@ -579,16 +577,12 @@ class DeepPolyLeakyReLu(DeepPolyReLu):
         lower_bias[self.positive_relu_mask()] = 0
         lower_bias[self.negative_relu_mask()] = 0
 
-        print("upper bias: ", upper_bias)
-        print("lower bias: ", lower_bias)
-
         return upper_bias, lower_bias
 
     def compute_bias_smaller_one(self):
         # Upper bias
         # b = u - m*u
         upper_bias = self.prev_ub - self.upper_bound_slope * self.prev_ub
-        print("upper bias: ", upper_bias)
         upper_bias[self.positive_relu_mask()] = 0
         upper_bias[self.negative_relu_mask()] = 0
 

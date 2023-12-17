@@ -6,7 +6,7 @@ import torch.nn as nn
 from networks import get_network
 from utils.loading import parse_spec
 # from box import certify_sample, AbstractBox
-from deeppoly import DeepPolyLinear, DeepPolyFlatten, DeepPolyReLu, DeepPolyConvolution
+from deeppoly import DeepPolyLinear, DeepPolyFlatten, DeepPolyReLu, DeepPolyLeakyReLu, DeepPolyConvolution
 
 DEVICE = "cpu"
 
@@ -43,6 +43,10 @@ def analyze(
             if prev_layer is None:
                 raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
             poly_layer = DeepPolyReLu(layer)
+        elif isinstance(layer, nn.LeakyReLU):
+            if prev_layer is None:
+                raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
+            poly_layer = DeepPolyLeakyReLu(layer)
         elif isinstance(layer, nn.Conv2d):
             poly_layer = DeepPolyConvolution(layer)
         else:
