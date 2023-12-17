@@ -105,7 +105,7 @@ def main():
     # print(args.spec)
 
     net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
-    print(net)
+    # print(net)
     print(args.net)
     print(args.spec)
 

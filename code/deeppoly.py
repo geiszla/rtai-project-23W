@@ -110,24 +110,20 @@ class DeepPolyLinear(DeepPolyBase):
         Pushing the previous box through this layer.
         Calling backsubstitution to compute additional constraints.
         """
-        print("-----------linear layer-----------")
+        # print("-----------linear layer-----------")
         orig_ub, orig_lb, prev_ub, prev_lb, constraints = inputs
         
 
         assert torch.all(prev_ub >= prev_lb)
         assert prev_ub.shape == prev_lb.shape
 
-        print("Constraints start")
         constraints = self.backsubstitution(constraints)
-        print("Constraints end")
         # print("constraints: ")
         # print("uc:", constraints.upper_constraints)
         # print("lc:", constraints.lower_constraints)
         # print("ub:", constraints.upper_bias)
         # print("lb", constraints.lower_bias)
-        print("box start")
         self.box_from_constraints(orig_ub, orig_lb, constraints)
-        print("box end")
         # print("upper bound: ", self.upper_bound)
         # print("lower bound: ", self.lower_bound)
 
@@ -149,22 +145,22 @@ class DeepPolyLinear(DeepPolyBase):
         assert isinstance(constraints, Constraints)
 
         # print percentage of weights that are zero
-        print("percentage of weights that are zero: ", (self.weight == 0).sum().item() / self.weight.numel())
+        # print("percentage of weights that are zero: ", (self.weight == 0).sum().item() / self.weight.numel())
 
         # Compute the new constraints and bias
         pos_weight, neg_weight = self.pos_neg_split(self.weight.T)
-        print("compute new constraints start")
+        # print("compute new constraints start")
         new_upper_constraints, new_lower_constraints = self.compute_new_constraints(
             pos_weight, neg_weight, constraints
         )
-        print("compute new constraints end")
+        # print("compute new constraints end")
 
         pos_weight, neg_weight = self.pos_neg_split(self.weight)
-        print("compute new bias start")
+        # print("compute new bias start")
         upper_bias, lower_bias = self.compute_new_bias(
             pos_weight, neg_weight, constraints
         )
-        print("compute new bias end")
+        # print("compute new bias end")
         # Update the constraints
         updated_constraints = Constraints(
             new_upper_constraints, new_lower_constraints, upper_bias, lower_bias
@@ -174,17 +170,16 @@ class DeepPolyLinear(DeepPolyBase):
 
     def compute_new_constraints(self, pos_weight, neg_weight, constraints):
         # Compute the new constraints
-        print("pos_weight", pos_weight.shape)
-        print("constraints.upper_constraints", constraints.upper_constraints.shape)
-        # new_upper_constraints = (
-        #     constraints.upper_constraints @ pos_weight
-        #     + constraints.lower_constraints @ neg_weight
-        # )
-        # using torch.matmul instead of @
-        new_upper_constraints = torch.sparse.mm(constraints.upper_constraints.to_sparse(), pos_weight) \
-                                + torch.sparse.mm(constraints.lower_constraints.to_sparse(), neg_weight)
+        # print("pos_weight", pos_weight.shape)
+        # print("constraints.upper_constraints", constraints.upper_constraints.shape)
+        new_upper_constraints = (
+            constraints.upper_constraints @ pos_weight
+            + constraints.lower_constraints @ neg_weight
+        )
+        # new_upper_constraints = torch.sparse.mm(constraints.upper_constraints.to_sparse(), pos_weight) \
+        #                         + torch.sparse.mm(constraints.lower_constraints.to_sparse(), neg_weight)
 
-        print("new_upper_constraints", new_upper_constraints.shape)
+        # print("new_upper_constraints", new_upper_constraints.shape)
         new_lower_constraints = (
             constraints.upper_constraints @ neg_weight
             + constraints.lower_constraints @ pos_weight
@@ -313,8 +308,8 @@ class DeepPolyConvolution(DeepPolyLinear):
         # in case this is the first layer we need to flatten and transpose the input
         flatten = nn.Flatten(start_dim=0)
         if constraints is None:
-            print("orig_ub", orig_ub.shape)
-            print("flatten orig_ub", flatten(orig_ub).unsqueeze(1).shape)
+            # print("orig_ub", orig_ub.shape)
+            # print("flatten orig_ub", flatten(orig_ub).unsqueeze(1).shape)
             new_inputs = (
                 flatten(orig_ub).unsqueeze(1),
                 flatten(orig_lb).unsqueeze(1),
@@ -339,8 +334,6 @@ class DeepPolyConvolution(DeepPolyLinear):
         linear_result[2] = self.upper_bound
         linear_result[3] = self.lower_bound
 
-        print("upper bound: ", self.upper_bound.shape)
-
         return tuple(linear_result)
 
 
@@ -349,7 +342,7 @@ class DeepPolyReLu(DeepPolyBase):
         super(DeepPolyReLu, self).__init__()
 
     def forward(self, inputs):
-        print("-------------relu layer---------------")
+        # print("-------------relu layer---------------")
         orig_ub, orig_lb, prev_ub, prev_lb, prev_constraints = inputs
 
         assert torch.all(prev_ub >= prev_lb)
@@ -360,9 +353,9 @@ class DeepPolyReLu(DeepPolyBase):
 
         
         # Compute constraints using backsubstitution
-        print("backsubstitution start")
+        # print("backsubstitution start")
         constraints = self.backsubstitution(prev_constraints)
-        print("backsubstitution end")
+        # print("backsubstitution end")
         # print("upper bound slope", self.upper_bound_slope)
         # print("lower bound slope", self.lower_bound_slope)
         # print("constraints: ")
@@ -374,9 +367,7 @@ class DeepPolyReLu(DeepPolyBase):
 
 
         # Update box bounds with constraints
-        print("box start")
         self.box_from_constraints(orig_ub, orig_lb, constraints)
-        print("box end")
         # print("upper bound: ", self.upper_bound)
         # print("lower bound: ", self.lower_bound)
         return orig_ub, orig_lb, self.upper_bound, self.lower_bound, constraints
@@ -408,7 +399,6 @@ class DeepPolyReLu(DeepPolyBase):
         #diag_ub = torch.diag(self.upper_bound_slope.view(-1))
         #diag_lb = torch.diag(self.lower_bound_slope.view(-1))
 
-        print("> upper_constraint element wise start")
         new_upper_constraints = prev_constraints.upper_constraints * (self.upper_bound_slope.view(-1).repeat(prev_constraints.upper_constraints.shape[0], 1))
         #print("> upper constraint start")
         #print("diag_ub", diag_ub.shape) 
@@ -417,16 +407,13 @@ class DeepPolyReLu(DeepPolyBase):
 
         #assert torch.all(new_upper_constraints == new_upper_constraints2)
         
-        print("> lower constraint start")
         #new_lower_constraints = prev_constraints.lower_constraints @ diag_lb
         new_lower_constraints = prev_constraints.lower_constraints * (self.lower_bound_slope.view(-1).repeat(prev_constraints.lower_constraints.shape[0], 1))
 
         # update the bias
-        print("> upper bias start")
         upper_bias = self.upper_bound_slope.view(-1) * prev_constraints.upper_bias \
                         + self.this_layer_upper_bias
         
-        print("> lower bias start")
         lower_bias = self.lower_bound_slope.view(-1) * prev_constraints.lower_bias \
                         + self.this_layer_lower_bias
 
