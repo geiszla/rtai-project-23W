@@ -1,6 +1,4 @@
 from abc import abstractmethod
-from pylint import overrides
-
 import numpy
 import torch
 from toeplitz import get_toeplitz_convolution
@@ -474,10 +472,11 @@ class DeepPolyReLu(DeepPolyBase):
 
 class DeepPolyLeakyReLu(DeepPolyReLu):
     def __init__(self, layer):
-        super(DeepPolyLeakyReLu, self).__init__()
+        super(DeepPolyLeakyReLu, self).__init__(layer)
         self.leaky_relu_slope = layer.negative_slope
+        self.prev_ub = None
+        self.prev_lb = None
 
-    @override
     def compute_relu_slopes(self):
         """
         Compute the slopes of the upper and lower bound for the constraints.
@@ -493,8 +492,7 @@ class DeepPolyLeakyReLu(DeepPolyReLu):
         self.upper_bound_slope = ubs
         self.lower_bound_slope = lbs
 
-    @override
-    def compute_bias(self):
+    def compute_bias(self): 
         """
         Compute the bias of the upper and lower bound for the constraints.
         Use two different cases for leaky relu slope bigger or smaller than 1.
@@ -503,6 +501,9 @@ class DeepPolyLeakyReLu(DeepPolyReLu):
             ub, lb = self.compute_bias_bigger_one()
         else:
             ub, lb = self.compute_bias_smaller_one()
+
+        self.this_layer_upper_bias = ub
+        self.this_layer_lower_bias = lb
 
     def compute_slope_bigger_one(self):
 
@@ -532,57 +533,68 @@ class DeepPolyLeakyReLu(DeepPolyReLu):
         assert torch.isnan(upper_slopes).sum() == 0
         assert torch.isnan(lower_slopes).sum() == 0
 
+        print("upper slopes: ", upper_slopes)
+        print("lower slopes: ", lower_slopes)
+
         return upper_slopes, lower_slopes
 
     def compute_slope_smaller_one(self):
-        # TODO
+        # Initialize with NaN
         upper_slopes = torch.full_like(self.prev_ub, float("nan"), dtype=torch.float32)
         lower_slopes = torch.full_like(self.prev_lb, float("nan"), dtype=torch.float32)
 
-        # Compute slopes
-        upper_slopes[self.crossing_relu_mask()] = self.prev_ub[
-            self.crossing_relu_mask()
-        ] / (
-            self.prev_ub[self.crossing_relu_mask()]
-            - self.prev_lb[self.crossing_relu_mask()]
+        # Upper slopes
+        # (ub - a*lb) / (ub - lb)
+        rise = self.prev_ub - (
+            self.leaky_relu_slope * self.prev_lb
         )
+        run = (
+            self.prev_ub
+            - self.prev_lb
+        )
+        upper_slopes[self.crossing_relu_mask()] = rise[self.crossing_relu_mask()] / run[self.crossing_relu_mask()]
+        upper_slopes[self.positive_relu_mask()] = 1
+        upper_slopes[self.negative_relu_mask()] = self.leaky_relu_slope
 
+        # Lower slopes
         lower_slopes[self.crossing_relu_mask()] = 1
+        lower_slopes[self.positive_relu_mask()] = 1
+        lower_slopes[self.negative_relu_mask()] = self.leaky_relu_slope
 
         return upper_slopes, lower_slopes
 
     def compute_bias_bigger_one(self):
-        # Initialize with NaN
-        lower_bias = torch.full_like(self.prev_lb, float("nan"), dtype=torch.float32)
-
-        # Get the indices of crossing relus
-        crossing_indices = self.crossing_relu_mask()
-
         # Upper bias
         upper_bias = torch.zeros_like(self.prev_ub, dtype=torch.float32)
 
         # Lower bias
-        numerator = (
-            torch.square(self.prev_ub[crossing_indices])
-            - self.prev_ub[crossing_indices] * self.prev_lb[crossing_indices]
-        )
-        denominator = (
-            self.prev_ub[crossing_indices]
-            - self.leaky_relu_slope * self.prev_lb[crossing_indices]
-        )
 
-        lower_bias[crossing_indices] = self.prev_ub[crossing_indices] - (
-            numerator / denominator
-        )
-        lower_bias[self.positive_relu_mask() or self.negative_relu_mask()] = 0
+        # Initialize with NaN
+        lower_bias = torch.full_like(self.prev_lb, float("nan"), dtype=torch.float32)
+
+        # b = u - m*u
+        lower_bias = self.prev_ub - self.lower_bound_slope * self.prev_ub
+
+        # Set all non-crossing ReLUs to 0
+        lower_bias[self.positive_relu_mask()] = 0
+        lower_bias[self.negative_relu_mask()] = 0
+
+        print("upper bias: ", upper_bias)
+        print("lower bias: ", lower_bias)
 
         return upper_bias, lower_bias
 
     def compute_bias_smaller_one(self):
-        # TODO
-        upper_bias = torch.full_like(self.prev_ub, float("nan"), dtype=torch.float32)
-        lower_bias = torch.full_like(self.prev_lb, float("nan"), dtype=torch.float32)
+        # Upper bias
+        # b = u - m*u
+        upper_bias = self.prev_ub - self.upper_bound_slope * self.prev_ub
+        print("upper bias: ", upper_bias)
+        upper_bias[self.positive_relu_mask()] = 0
+        upper_bias[self.negative_relu_mask()] = 0
 
+        # Lower bias
+        lower_bias = torch.zeros_like(self.prev_lb, dtype=torch.float32)
+    
         return upper_bias, lower_bias
 
 class Constraints:
@@ -601,24 +613,24 @@ class Constraints:
 def main():
     prev_ub = torch.tensor([[-1, 1], [2, 3], [2, 1]], dtype=torch.float32)
     prev_lb = torch.tensor([[-3, -1], [1, -1], [1, -1]], dtype=torch.float32)
-    reluLayer = nn. LeakyReLU()
+    reluLayer = nn. LeakyReLU(0.5)
 
     verifier = DeepPolyLeakyReLu(reluLayer)
-    verifier.prev_up = prev_ub
+    verifier.prev_ub = prev_ub
     verifier.prev_lb = prev_lb
 
 
-    # print("Prev upper bound", verifier.prev_ub)
-    # print("Prev lower bound", verifier.prev_lb)
-    # print("Crossing relu mask", verifier.crossing_relu_mask())
+    print("Prev upper bound", verifier.prev_ub)
+    print("Prev lower bound", verifier.prev_lb)
+    print("Crossing relu mask", verifier.crossing_relu_mask())
     # print("Positive relu mask", verifier.positive_relu_mask())
     # print("Negative relu mask", verifier.negative_relu_mask())
     verifier.compute_relu_slopes()
-    # print("Upper slopes", verifier.upper_bound_slope)
-    # print("Lower slopes", verifier.lower_bound_slope)
+    print("Upper slopes", verifier.upper_bound_slope)
+    print("Lower slopes", verifier.lower_bound_slope)
     verifier.compute_bias()
-    # print("Upper bias", verifier.this_layer_upper_bias)
-    # print("Lower bias", verifier.this_layer_lower_bias)
+    print("Upper bias", verifier.this_layer_upper_bias)
+    print("Lower bias", verifier.this_layer_lower_bias)
 
 
 if __name__ == "__main__":
