@@ -4,12 +4,17 @@ import torch
 import torch.nn as nn
 
 # from box import certify_sample, AbstractBox
-from deeppoly import DeepPolyConvolution, DeepPolyFlatten, DeepPolyLinear, DeepPolyReLu
+# from box import certify_sample, AbstractBox
+from deeppoly import (
+    DeepPolyConvolution,
+    DeepPolyFlatten,
+    DeepPolyLeakyReLu,
+    DeepPolyLinear,
+    DeepPolyReLu,
+)
 from networks import get_network
 from torch import optim
 from utils.loading import parse_spec
-# from box import certify_sample, AbstractBox
-from deeppoly import DeepPolyLinear, DeepPolyFlatten, DeepPolyReLu, DeepPolyLeakyReLu, DeepPolyConvolution
 
 DEVICE = "cpu"
 
@@ -28,7 +33,7 @@ def check_postcondition(upper_bound, lower_bound, true_label):
     # print("lower_bound", lower_bound)
     # print("true_label", true_label)
     # print("upper_bound", upper_bound)
-    return lower_bound[true_label] - max_value #max_value < lower_bound[true_label]
+    return lower_bound[true_label] - max_value  # max_value < lower_bound[true_label]
 
 
 def analyze(
@@ -45,12 +50,12 @@ def analyze(
             poly_layer = DeepPolyLinear(layer)
         elif isinstance(layer, nn.ReLU):
             if prev_layer is None:
-                raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
+                raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
             poly_layer = DeepPolyReLu(layer, prev_layer.out_features)
         elif isinstance(layer, nn.LeakyReLU):
             if prev_layer is None:
-                raise NotImplementedError(f'Unsupported layer type: {type(layer)}')
-            poly_layer = DeepPolyLeakyReLu(layer)
+                raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
+            poly_layer = DeepPolyLeakyReLu(layer, prev_layer.out_features)
         elif isinstance(layer, nn.Conv2d):
             poly_layer = DeepPolyConvolution(layer)
         else:
@@ -67,7 +72,7 @@ def analyze(
     lower_bound.clamp_(min=0, max=1)
 
     # upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, None))
-    
+
     # print("upper_bound", upper_bound)
     # print("lower_bound", lower_bound)
     # print("true_label", true_label)
@@ -83,17 +88,21 @@ def analyze(
     #     print(name, param.requires_grad)
 
     for _ in range(100):
-        _orig_ub, _orig_lb, upper_bound_result, lower_bound_result, _constraints = polynet(
-        (upper_bound, lower_bound, upper_bound, lower_bound, None)
-        )
+        (
+            _orig_ub,
+            _orig_lb,
+            upper_bound_result,
+            lower_bound_result,
+            _constraints,
+        ) = polynet((upper_bound, lower_bound, upper_bound, lower_bound, None))
         optimizer.zero_grad()
 
         result = check_postcondition(upper_bound_result, lower_bound_result, true_label)
 
-        if (result > 0):
+        if result > 0:
             return True
 
-        #print("Alpha:", polynet[2].alpha.data[:10])
+        # print("Alpha:", polynet[2].alpha.data[:10])
 
         loss = torch.log(-result)
         loss.backward()
@@ -107,10 +116,6 @@ def analyze(
         for parameter in polynet.parameters():
             if parameter.requires_grad:
                 parameter.data = parameter.data.clamp_(0, 1)
-        
-        
-
-        
 
     return result > 0
 
@@ -163,6 +168,9 @@ def main():
     else:
         print("not verified")
 
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":

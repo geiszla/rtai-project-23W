@@ -542,7 +542,7 @@ class DeepPolyReLu(DeepPolyBase):
 
 class DeepPolyLeakyReLu(DeepPolyReLu):
     def __init__(self, layer, input_size):
-        super(DeepPolyLeakyReLu, self).__init__(layer)
+        super(DeepPolyLeakyReLu, self).__init__(layer, input_size)
 
         self.alpha = nn.Parameter(torch.rand((input_size, 1)))
         self.alpha.requires_grad = True
