@@ -547,12 +547,13 @@ class DeepPolyLeakyReLu(DeepPolyReLu):
     def __init__(self, layer, input_shape):
         super(DeepPolyLeakyReLu, self).__init__(layer, input_shape)
 
-        self.alpha = nn.Parameter(torch.rand(input_shape))
-        self.alpha.requires_grad = True
-
         self.leaky_relu_slope = layer.negative_slope
         self.prev_ub = None
         self.prev_lb = None
+
+        # Initialize the alpha learnable parameters
+        self.alpha = nn.Parameter(torch.rand(input_shape))
+        self.alpha.requires_grad = True
 
     def compute_relu_slopes(self):
         """

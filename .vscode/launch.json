@@ -21,7 +21,7 @@
       "console": "integratedTerminal",
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
-      "args": ["--net", "conv_1", "--spec", "preliminary_evaluation_test_cases/conv_1/img8_mnist_0.1272.txt"]
+      "args": ["--net", "conv_4", "--spec", "preliminary_evaluation_test_cases/conv_4/img8_mnist_0.2113.txt"]
     }
   ]
 }

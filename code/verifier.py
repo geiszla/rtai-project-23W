@@ -1,5 +1,6 @@
 import argparse
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -46,14 +47,12 @@ def analyze(
     prev_layer = None
 
     for layer in net:
-        output_shape = (
-            (layer.out_features, 1) if hasattr(layer, "out_features") else None
-        )
-
         if isinstance(layer, nn.Flatten):
             poly_layer = DeepPolyFlatten()
+            prev_layer_output_shape = (np.prod(prev_layer_output_shape),)
         elif isinstance(layer, nn.Linear):
             poly_layer = DeepPolyLinear(layer)
+            prev_layer_output_shape = (layer.out_features, 1)
         elif isinstance(layer, nn.ReLU):
             if prev_layer is None:
                 raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
@@ -80,14 +79,13 @@ def analyze(
                 layer.padding[0],
             )
 
-            output_shape = (layer.out_channels, output_height, output_width)
+            prev_layer_output_shape = (layer.out_channels, output_height, output_width)
         else:
             raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
         layers.append(poly_layer)
 
         prev_layer = layer
-        prev_layer_output_shape = output_shape
 
     polynet = nn.Sequential(*layers)
 
