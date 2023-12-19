@@ -2,7 +2,7 @@ from abc import abstractmethod
 
 import numpy
 import torch
-from toeplitz import get_toeplitz_convolution
+from toeplitz import get_convolution_output_size, get_toeplitz_convolution
 from torch import nn
 
 
@@ -328,8 +328,13 @@ class DeepPolyConvolution(DeepPolyLinear):
         linear_result = super().forward((new_inputs))
         linear_result = list(linear_result)
 
-        output_height = (input_height - kernel_height + 2 * padding) // stride + 1
-        output_width = (input_width - kernel_width + 2 * padding) // stride + 1
+        output_height = get_convolution_output_size(
+            input_height, kernel_height, stride, padding
+        )
+        output_width = get_convolution_output_size(
+            input_width, kernel_width, stride, padding
+        )
+
         output_shape = (self.layer.out_channels, output_height, output_width)
 
         self.upper_bound = self.upper_bound.view(output_shape)
@@ -342,14 +347,12 @@ class DeepPolyConvolution(DeepPolyLinear):
 
 
 class DeepPolyReLu(DeepPolyBase):
-    def __init__(self, layer, input_size):
+    def __init__(self, layer, input_shape):
         super(DeepPolyReLu, self).__init__()
-        self.alpha = nn.Parameter(torch.rand((input_size, 1)))
-        self.alpha.requires_grad = True
 
         # Initialize the alpha learnable parameters
-        # self.alpha = torch.nn.Parameter(torch.rand(input_size))
-        # self.alpha.requires_grad = True
+        self.alpha = nn.Parameter(torch.rand(input_shape))
+        self.alpha.requires_grad = True
 
     def forward(self, inputs):
         # print("-------------relu layer---------------")
@@ -541,10 +544,10 @@ class DeepPolyReLu(DeepPolyBase):
 
 
 class DeepPolyLeakyReLu(DeepPolyReLu):
-    def __init__(self, layer, input_size):
-        super(DeepPolyLeakyReLu, self).__init__(layer, input_size)
+    def __init__(self, layer, input_shape):
+        super(DeepPolyLeakyReLu, self).__init__(layer, input_shape)
 
-        self.alpha = nn.Parameter(torch.rand((input_size, 1)))
+        self.alpha = nn.Parameter(torch.rand(input_shape))
         self.alpha.requires_grad = True
 
         self.leaky_relu_slope = layer.negative_slope
@@ -697,5 +700,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
     main()

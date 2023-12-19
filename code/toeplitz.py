@@ -1,6 +1,11 @@
 import numpy
-from scipy.linalg import toeplitz
 import torch
+from scipy.linalg import toeplitz
+
+
+def get_convolution_output_size(input_size, kernel_size, stride, padding):
+    return (input_size - kernel_size + 2 * padding) // stride + 1
+
 
 def get_toeplitz_channel_convolution(kernel, input_size, stride=1, padding=1):
     """Compute the Toeplitz matrix for 2D convolution with with the given single-channel kernel
@@ -34,7 +39,9 @@ def get_toeplitz_channel_convolution(kernel, input_size, stride=1, padding=1):
         )
 
     toeplitz_height, toeplitz_width = toeplitz_list[0].shape
-    vertical_block_count = (padded_input_height - kernel_height) // stride + 1
+    vertical_block_count = get_convolution_output_size(
+        padded_input_height, kernel_height, stride, 0
+    )
 
     # Add all the created Toeplitz matrices to one big matrix
     toeplitz_matrix = numpy.zeros(
@@ -79,8 +86,8 @@ def get_toeplitz_convolution(kernel, input_size, stride=1, padding=1):
     """
     output_size = (
         kernel.shape[0],
-        (input_size[1] - kernel.shape[2] + 2 * padding) // stride + 1,
-        (input_size[2] - kernel.shape[3] + 2 * padding) // stride + 1,
+        get_convolution_output_size(input_size[1], kernel.shape[2], stride, padding),
+        get_convolution_output_size(input_size[2], kernel.shape[3], stride, padding),
     )
 
     # Initialize the empty Toeplitz matrix

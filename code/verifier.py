@@ -13,6 +13,7 @@ from deeppoly import (
     DeepPolyReLu,
 )
 from networks import get_network
+from toeplitz import get_convolution_output_size
 from torch import optim
 from utils.loading import parse_spec
 
@@ -41,9 +42,14 @@ def analyze(
 ) -> bool:
     layers = []
 
+    prev_layer_output_shape = inputs.shape
     prev_layer = None
 
     for layer in net:
+        output_shape = (
+            (layer.out_features, 1) if hasattr(layer, "out_features") else None
+        )
+
         if isinstance(layer, nn.Flatten):
             poly_layer = DeepPolyFlatten()
         elif isinstance(layer, nn.Linear):
@@ -51,18 +57,37 @@ def analyze(
         elif isinstance(layer, nn.ReLU):
             if prev_layer is None:
                 raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
-            poly_layer = DeepPolyReLu(layer, prev_layer.out_features)
+
+            poly_layer = DeepPolyReLu(layer, prev_layer_output_shape)
         elif isinstance(layer, nn.LeakyReLU):
             if prev_layer is None:
                 raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
-            poly_layer = DeepPolyLeakyReLu(layer, prev_layer.out_features)
+
+            poly_layer = DeepPolyLeakyReLu(layer, prev_layer_output_shape)
         elif isinstance(layer, nn.Conv2d):
             poly_layer = DeepPolyConvolution(layer)
+
+            output_height = get_convolution_output_size(
+                prev_layer_output_shape[-1],
+                layer.kernel_size[-1],
+                layer.stride[0],
+                layer.padding[0],
+            )
+            output_width = get_convolution_output_size(
+                prev_layer_output_shape[-2],
+                layer.kernel_size[-2],
+                layer.stride[0],
+                layer.padding[0],
+            )
+
+            output_shape = (layer.out_channels, output_height, output_width)
         else:
             raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
         layers.append(poly_layer)
+
         prev_layer = layer
+        prev_layer_output_shape = output_shape
 
     polynet = nn.Sequential(*layers)
 
@@ -167,10 +192,6 @@ def main():
         print("verified")
     else:
         print("not verified")
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":
