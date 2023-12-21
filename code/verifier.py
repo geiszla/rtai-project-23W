@@ -103,9 +103,13 @@ def analyze(
     optimizer = optim.Adam(polynet.parameters(), lr=0.7)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.75)
 
+    is_trainable = False
+
     for name, param in polynet.named_parameters():
         if "alpha" not in name:
             param.requires_grad = False
+        else:
+            is_trainable = True
 
     # for name, param in polynet.named_parameters():
     #     print(name, param.requires_grad)
@@ -122,8 +126,8 @@ def analyze(
 
         result = check_postcondition(upper_bound_result, lower_bound_result, true_label)
 
-        if result > 0:
-            return True
+        if result > 0 or not is_trainable:
+            return result > 0
 
         # print("Alpha:", polynet[2].alpha.data[:10])
 
