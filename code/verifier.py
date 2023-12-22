@@ -118,48 +118,67 @@ def analyze(
     # print("lower_bound", lower_bound)
     # print("true_label", true_label)
 
-    optimizer = optim.Adam(polynet.parameters(), lr=0.7)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.75)
-
-    is_trainable = False
-
-    for name, param in polynet.named_parameters():
-        if "alpha" not in name:
-            param.requires_grad = False
-        else:
-            is_trainable = True
-
-    # for name, param in polynet.named_parameters():
-    #     print(name, param.requires_grad)
-
-    for _ in range(100):
-        (
+    (
             _orig_ub,
             _orig_lb,
             upper_bound_result,
             lower_bound_result,
         ) = polynet((upper_bound, lower_bound, upper_bound, lower_bound))
-        optimizer.zero_grad()
+    
+    result = check_postcondition(upper_bound_result, lower_bound_result, true_label)
 
-        result = check_postcondition(upper_bound_result, lower_bound_result, true_label)
+    # for idx in range(len(polynet)):
+    #     layer = polynet[idx]
+    #     print("Layer: ", idx)
+    #     layer.constraints.print_constraints()
 
-        if result > 0 or not is_trainable:
-            return result > 0
+    print(lower_bound_result)
 
-        # print("Alpha:", polynet[2].alpha.data[:10])
 
-        loss = torch.log(-result)
-        loss.backward()
-        optimizer.step()
+    # optimizer = optim.Adam(polynet.parameters(), lr=0.7)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.75)
 
-        print(f"loss: {loss.item()}")
+    # is_trainable = False
 
-        if scheduler.get_last_lr()[0] > 0.1:
-            scheduler.step()
+    # for name, param in polynet.named_parameters():
+    #     if "alpha" not in name:
+    #         param.requires_grad = False
+    #     else:
+    #         is_trainable = True
 
-        for parameter in polynet.parameters():
-            if parameter.requires_grad:
-                parameter.data = parameter.data.clamp_(0, 1)
+    # # for name, param in polynet.named_parameters():
+    # #     print(name, param.requires_grad)
+
+    # for _ in range(100):
+    #     (
+    #         _orig_ub,
+    #         _orig_lb,
+    #         upper_bound_result,
+    #         lower_bound_result,
+    #     ) = polynet((upper_bound, lower_bound, upper_bound, lower_bound))
+    #     optimizer.zero_grad()
+
+
+
+    #     result = check_postcondition(upper_bound_result, lower_bound_result, true_label)
+
+    #     if result > 0 or not is_trainable:
+    #         return result > 0
+
+    #     # print("Alpha:", polynet[2].alpha.data[:10])
+
+    #     loss = torch.log(-result)
+    #     loss.backward()
+    #     optimizer.step()
+
+    #     print(f"loss: {loss.item()}")
+
+    #     if scheduler.get_last_lr()[0] > 0.1:
+    #         scheduler.step()
+
+    #     for parameter in polynet.parameters():
+    #         if parameter.requires_grad:
+    #             parameter.data = parameter.data.clamp_(0, 1)
 
     return result > 0
 

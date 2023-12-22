@@ -351,8 +351,12 @@ class DeepPolyReLu(DeepPolyBase):
         super(DeepPolyReLu, self).__init__()
 
         # Initialize the alpha learnable parameters
-        self.alpha = nn.Parameter(torch.rand(input_shape))
-        self.alpha.requires_grad = True
+        # self.alpha = nn.Parameter(torch.rand(input_shape))
+        # self.alpha.requires_grad = True
+
+        # Deterministic initialization
+        self.alpha = nn.Parameter(torch.zeros(input_shape))
+        # self.alpha.requires_grad = True
 
     def forward(self, inputs):
         # print("-------------relu layer---------------")
@@ -671,11 +675,31 @@ class Constraints:
     upper_bias = None
     lower_bias = None
 
-    def __init__(self, uc, lc, ub, lb):
+    def __init__(self, uc=None, lc=None, ub=None, lb=None):
         self.upper_constraints = uc
         self.lower_constraints = lc
         self.upper_bias = ub
         self.lower_bias = lb
+    
+    def print_constraints(self):
+        print("++++++++++++++++++++++++++++++++++++++++++++++++++")
+        print("upper constraints shape", self.upper_constraints.shape)
+        print("upper constraints", self.upper_constraints)
+        #print("lower constraints shape", self.lower_constraints.shape)
+        #print("lower constraints", self.lower_constraints)
+        print("upper bias shape", self.upper_bias.shape)
+        print("upper bias", self.upper_bias)
+        #print("lower bias shape", self.lower_bias.shape)
+        #print("lower bias", self.lower_bias)
+
+    def is_empty(self):
+        return (
+            self.upper_constraints is None
+            and self.lower_constraints is None
+            and self.upper_bias is None
+            and self.lower_bias is None
+        )
+
 
 
 def main():
