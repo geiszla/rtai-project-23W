@@ -5,14 +5,15 @@ import torch
 import torch.nn as nn
 
 # from box import certify_sample, AbstractBox
-# from box import certify_sample, AbstractBox
-from deeppoly import (
+from deeppoly_backsub import (
     DeepPolyConvolution,
     DeepPolyFlatten,
     DeepPolyLeakyReLu,
     DeepPolyLinear,
     DeepPolyReLu,
 )
+
+# from deeppoly import DeepPolyReLu
 from networks import get_network
 from toeplitz import get_convolution_output_size
 from torch import optim
@@ -43,28 +44,37 @@ def analyze(
 ) -> bool:
     layers = []
 
-    prev_layer_output_shape = inputs.shape
     prev_layer = None
+    prev_poly_layer = None
+
+    prev_layer_output_shape = inputs.shape
+    prev_layer_flattened_shape = inputs.shape
 
     for layer in net:
         if isinstance(layer, nn.Flatten):
-            poly_layer = DeepPolyFlatten()
+            poly_layer = DeepPolyFlatten(prev_poly_layer)
             prev_layer_output_shape = (np.prod(prev_layer_output_shape),)
         elif isinstance(layer, nn.Linear):
-            poly_layer = DeepPolyLinear(layer)
-            prev_layer_output_shape = (layer.out_features, 1)
+            poly_layer = DeepPolyLinear(layer, prev_poly_layer)
+            prev_layer_output_shape = (layer.out_features,)
         elif isinstance(layer, nn.ReLU):
             if prev_layer is None:
                 raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
-            poly_layer = DeepPolyReLu(layer, prev_layer_output_shape)
+            poly_layer = DeepPolyReLu(
+                layer, prev_layer_flattened_shape, prev_poly_layer
+            )
         elif isinstance(layer, nn.LeakyReLU):
             if prev_layer is None:
                 raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
-            poly_layer = DeepPolyLeakyReLu(layer, prev_layer_output_shape)
+            poly_layer = DeepPolyLeakyReLu(
+                layer, prev_layer_flattened_shape, prev_poly_layer
+            )
         elif isinstance(layer, nn.Conv2d):
-            poly_layer = DeepPolyConvolution(layer)
+            poly_layer = DeepPolyConvolution(
+                layer, prev_layer_output_shape, prev_poly_layer
+            )
 
             output_height = get_convolution_output_size(
                 prev_layer_output_shape[-1],
@@ -72,6 +82,7 @@ def analyze(
                 layer.stride[0],
                 layer.padding[0],
             )
+
             output_width = get_convolution_output_size(
                 prev_layer_output_shape[-2],
                 layer.kernel_size[-2],
@@ -83,9 +94,16 @@ def analyze(
         else:
             raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
 
+        prev_layer_flattened_shape = (
+            np.prod(prev_layer_output_shape)
+            if isinstance(layer, nn.Conv2d)
+            else prev_layer_output_shape
+        )
+
         layers.append(poly_layer)
 
         prev_layer = layer
+        prev_poly_layer = poly_layer
 
     polynet = nn.Sequential(*layers)
 
@@ -120,8 +138,7 @@ def analyze(
             _orig_lb,
             upper_bound_result,
             lower_bound_result,
-            _constraints,
-        ) = polynet((upper_bound, lower_bound, upper_bound, lower_bound, None))
+        ) = polynet((upper_bound, lower_bound, upper_bound, lower_bound))
         optimizer.zero_grad()
 
         result = check_postcondition(upper_bound_result, lower_bound_result, true_label)
