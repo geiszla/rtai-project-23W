@@ -46,6 +46,10 @@ def analyze(
     prev_layer_output_shape = inputs.shape
     prev_layer_flattened_shape = inputs.shape
 
+    leaky_relu_index = 0
+    leaky_relu_index_list = []
+    leaky_relu_slope_list = []
+
     for layer in net:
         if isinstance(layer, nn.Flatten):
             poly_layer = DeepPolyFlatten(prev_poly_layer)
@@ -60,6 +64,7 @@ def analyze(
             poly_layer = DeepPolyReLu(
                 layer, prev_layer_flattened_shape, prev_poly_layer
             )
+            leaky_relu_index += 1
         elif isinstance(layer, nn.LeakyReLU):
             if prev_layer is None:
                 raise NotImplementedError(f"Unsupported layer type: {type(layer)}")
@@ -67,6 +72,9 @@ def analyze(
             poly_layer = DeepPolyLeakyReLu(
                 layer, prev_layer_flattened_shape, prev_poly_layer
             )
+            leaky_relu_index_list.append(leaky_relu_index)
+            leaky_relu_slope_list.append(layer.leaky_relu_slope)
+            leaky_relu_index += 1
         elif isinstance(layer, nn.Conv2d):
             poly_layer = DeepPolyConvolution(
                 layer, prev_layer_output_shape, prev_poly_layer
@@ -100,6 +108,8 @@ def analyze(
 
         prev_layer = layer
         prev_poly_layer = poly_layer
+
+        
 
     last_layer = nn.Linear(10,10)
     last_layer_weights = torch.eye(10) * (-1)
@@ -162,9 +172,22 @@ def analyze(
         if scheduler.get_last_lr()[0] > 0.1:
             scheduler.step()
 
+        index = 0
         for parameter in polynet.parameters():
             if parameter.requires_grad:
-                parameter.data = parameter.data.clamp_(0, 1)
+                # if leaky relu according to index, clamp with slope
+                if index in leaky_relu_index_list:
+                    if leaky_relu_slope_list[index] < 1:
+                        parameter.data = parameter.data.clamp_(
+                            leaky_relu_slope_list[index], 1
+                        )
+                    else:
+                        parameter.data = parameter.data.clamp_(
+                            1, leaky_relu_slope_list[index]
+                        )
+                else:
+                    parameter.data = parameter.data.clamp_(0, 1)
+                index += 1
 
     return result
 
