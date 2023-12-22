@@ -105,6 +105,16 @@ def analyze(
         prev_layer = layer
         prev_poly_layer = poly_layer
 
+    last_layer = nn.Linear(10,10)
+    last_layer_weights = torch.eye(10) * (-1)
+    last_layer_weights[:, true_label] = last_layer_weights[:, true_label] + 1
+    #print("last_layer_weights",last_layer_weights)
+    last_layer_bias = torch.zeros(10)
+    last_layer.weight = nn.Parameter(last_layer_weights)
+    last_layer.bias = nn.Parameter(last_layer_bias)
+    poly_last_layer = DeepPolyLinear(last_layer, prev_poly_layer)
+    layers.append(poly_last_layer)
+
     polynet = nn.Sequential(*layers)
 
     upper_bound = inputs + eps
@@ -141,18 +151,26 @@ def analyze(
         ) = polynet((upper_bound, lower_bound, upper_bound, lower_bound))
         optimizer.zero_grad()
 
-        result = check_postcondition(upper_bound_result, lower_bound_result, true_label)
+        # print("lower_bound_result", lower_bound_result)
 
-        if result > 0 or not is_trainable:
-            return result > 0
+        result = result = torch.all(lower_bound_result >= 0) #check_postcondition(upper_bound_result, lower_bound_result, true_label)
 
+
+        if result or not is_trainable:
+            return result
         # print("Alpha:", polynet[2].alpha.data[:10])
 
-        loss = torch.log(-result)
-        loss.backward()
+        loss2 = - lower_bound_result #upper_bound_result - lower_bound_result[true_label]
+        # print("loss2", loss2)
+        # everything below 0 is good and should not be penalized
+        loss2.clamp_(min=0)
+        # print("loss2 clamped", loss2)
+        loss2 = torch.log(loss2.sum())
+
+        loss2.backward()
         optimizer.step()
 
-        print(f"loss: {loss.item()}")
+        # print(f"loss: {loss2.item()}")
 
         if scheduler.get_last_lr()[0] > 0.1:
             scheduler.step()
@@ -161,7 +179,7 @@ def analyze(
             if parameter.requires_grad:
                 parameter.data = parameter.data.clamp_(0, 1)
 
-    return result > 0
+    return result
 
 
 def main():
