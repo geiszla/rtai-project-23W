@@ -173,21 +173,28 @@ def analyze(
             scheduler.step()
 
         index = 0
+        index2 = 0
+        print("leaky_relu_index_list", leaky_relu_index_list)
+        print("leaky_relu_slope_list", leaky_relu_slope_list)
         for parameter in polynet.parameters():
             if parameter.requires_grad:
                 # if leaky relu according to index, clamp with slope
                 if index in leaky_relu_index_list:
-                    if leaky_relu_slope_list[index] < 1:
+                    if leaky_relu_slope_list[index2] < 1:
+                        print("case1")
                         parameter.data = parameter.data.clamp_(
-                            leaky_relu_slope_list[index], 1
+                            leaky_relu_slope_list[index2], 1
                         )
                     else:
+                        print("case(2)")
                         parameter.data = parameter.data.clamp_(
-                            1, leaky_relu_slope_list[index]
+                            1, leaky_relu_slope_list[index2]
                         )
+                    index2 += 1
                 else:
                     parameter.data = parameter.data.clamp_(0, 1)
                 index += 1
+                
 
     return result
 
@@ -225,6 +232,7 @@ def main():
     # print(args.spec)
 
     net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
+    print(net)
     print(args.net)
     print(args.spec)
 
