@@ -305,11 +305,16 @@ class DeepPolyReLu(DeepPolyBase):
         pos_uc, neg_uc = self.pos_neg_split(weight_ub)
         pos_lc, neg_lc = self.pos_neg_split(weight_lb)
 
+        upper_bound_slope_ew = (self.upper_bound_slope.view(-1).repeat(weight_ub.shape[0], 1))
+        lower_bound_slope_ew = (self.lower_bound_slope.view(-1).repeat(weight_lb.shape[0], 1))
+
         upper_bound_slope = torch.diag(self.upper_bound_slope)
         lower_bound_slope = torch.diag(self.lower_bound_slope)
 
-        new_weight_ub = pos_uc @ upper_bound_slope + neg_uc @ lower_bound_slope
-        new_weight_lb = pos_lc @ lower_bound_slope + neg_lc @ upper_bound_slope
+        # using element wise multiplication without diagonal matrix
+        # have to account for dimensionality
+        new_weight_ub = pos_uc * upper_bound_slope_ew + neg_uc * lower_bound_slope_ew
+        new_weight_lb = pos_lc * lower_bound_slope_ew + neg_lc * upper_bound_slope_ew
 
         new_bias_ub = (
             bias_ub

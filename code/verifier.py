@@ -32,10 +32,6 @@ def check_postcondition(upper_bound, lower_bound, true_label):
     mask = torch.ones_like(upper_bound, dtype=torch.bool)
     mask[true_label] = False
     max_value = torch.max(torch.masked_select(upper_bound, mask))
-    # print("max_value", max_value)
-    # print("lower_bound", lower_bound)
-    # print("true_label", true_label)
-    # print("upper_bound", upper_bound)
     return lower_bound[true_label] - max_value  # max_value < lower_bound[true_label]
 
 
@@ -122,12 +118,6 @@ def analyze(
     lower_bound = inputs - eps
     lower_bound.clamp_(min=0, max=1)
 
-    # upper_bound, lower_bound, _constraints = polynet((upper_bound, lower_bound, None))
-
-    # print("upper_bound", upper_bound)
-    # print("lower_bound", lower_bound)
-    # print("true_label", true_label)
-
     optimizer = optim.Adam(polynet.parameters(), lr=0.7)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.75)
 
@@ -139,10 +129,7 @@ def analyze(
         else:
             is_trainable = True
 
-    # for name, param in polynet.named_parameters():
-    #     print(name, param.requires_grad)
-
-    for _ in range(100):
+    while True:
         (
             _orig_ub,
             _orig_lb,
@@ -158,7 +145,7 @@ def analyze(
 
         if result or not is_trainable:
             return result
-        # print("Alpha:", polynet[2].alpha.data[:10])
+
 
         loss2 = - lower_bound_result #upper_bound_result - lower_bound_result[true_label]
         # print("loss2", loss2)
@@ -215,7 +202,6 @@ def main():
     # print(args.spec)
 
     net = get_network(args.net, dataset, f"models/{dataset}_{args.net}.pt").to(DEVICE)
-    print(net)
     print(args.net)
     print(args.spec)
 
