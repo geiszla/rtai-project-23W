@@ -73,7 +73,7 @@ def analyze(
                 layer, prev_layer_flattened_shape, prev_poly_layer
             )
             leaky_relu_index_list.append(leaky_relu_index)
-            leaky_relu_slope_list.append(layer.leaky_relu_slope)
+            leaky_relu_slope_list.append(poly_layer.leaky_relu_slope)
             leaky_relu_index += 1
         elif isinstance(layer, nn.Conv2d):
             poly_layer = DeepPolyConvolution(
