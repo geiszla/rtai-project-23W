@@ -183,12 +183,12 @@ def analyze(
                     if leaky_relu_slope_list[index2] < 1:
                         print("case1")
                         parameter.data = parameter.data.clamp_(
-                            leaky_relu_slope_list[index], 1
+                            leaky_relu_slope_list[index2], 1
                         )
                     else:
                         print("case(2)")
                         parameter.data = parameter.data.clamp_(
-                            1, leaky_relu_slope_list[index]
+                            1, leaky_relu_slope_list[index2]
                         )
                     index2 += 1
                 else:
