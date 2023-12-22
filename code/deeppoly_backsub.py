@@ -154,6 +154,12 @@ class DeepPolyFlatten(DeepPolyBase):
 
     def backsubstitution(self, weight_ub, weight_lb, bias_ub, bias_lb):
         previous_layer = self if self.previous_layer is None else self.previous_layer
+
+        if self.previous_layer is not None:
+            return self.previous_layer.backsubstitution(
+                weight_ub, weight_lb, bias_ub, bias_lb
+            )
+
         return (previous_layer, weight_ub, weight_lb, bias_ub, bias_lb)
 
 
